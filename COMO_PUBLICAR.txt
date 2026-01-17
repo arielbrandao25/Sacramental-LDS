@@ -1,0 +1,68 @@
+═══════════════════════════════════════════════════════════════
+    🚀 COMO PUBLICAR SEU APP NO GITHUB PAGES
+═══════════════════════════════════════════════════════════════
+
+MÉTODO RÁPIDO (Automático):
+────────────────────────────────────────────────────────────────
+1. Execute o script:
+   .\primeiro-push.ps1
+   
+   O script vai guiar você passo a passo!
+
+MÉTODO MANUAL:
+────────────────────────────────────────────────────────────────
+
+PASSO 1: Criar Repositório no GitHub
+─────────────────────────────────────
+✓ Acesse: https://github.com/new
+✓ Nome: sacramental-lds (ou outro nome)
+✓ NÃO marque "Add README" ou outras opções
+✓ Clique em "Create repository"
+
+PASSO 2: Enviar Código para o GitHub
+─────────────────────────────────────
+No PowerShell, execute:
+
+   git add .
+   git commit -m "Initial commit"
+   git remote add origin https://github.com/SEU_USUARIO/sacramental-lds.git
+   git branch -M main
+   git push -u origin main
+
+⚠️ IMPORTANTE: Se pedir autenticação, use um Personal Access Token
+   Criar token: https://github.com/settings/tokens
+   Escopo: repo (todas as opções)
+
+PASSO 3: Habilitar GitHub Pages
+────────────────────────────────
+✓ No GitHub, vá em: Settings → Pages
+✓ Branch: main
+✓ Folder: /docs
+✓ Clique em Save
+
+PASSO 4: Obter o Domínio
+─────────────────────────
+Após 2-5 minutos, seu site estará em:
+
+   https://SEU_USUARIO.github.io/sacramental-lds/
+
+Exemplo:
+   Se seu usuário é "joaosilva", o site será:
+   https://joaosilva.github.io/sacramental-lds/
+
+═══════════════════════════════════════════════════════════════
+
+ATUALIZAR O SITE (Sempre que fizer alterações):
+─────────────────────────────────────────────────
+   .\update-docs.ps1
+   git add docs/index.html
+   git commit -m "Atualização"
+   git push
+
+═══════════════════════════════════════════════════════════════
+
+PRECISA DE AJUDA?
+─────────────────
+Leia: PUBLICAR_APP.md (guia completo e detalhado)
+
+═══════════════════════════════════════════════════════════════
