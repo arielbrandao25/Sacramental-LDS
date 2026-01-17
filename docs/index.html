@@ -3681,7 +3681,13 @@
                         console.log('✅ Usuário criado no Firebase:', newUser.uid);
                     } catch (e) {
                         if (e.code === 'auth/email-already-in-use') {
-                            setError('Este email já possui uma conta. O usuário pode fazer login diretamente.');
+                            // Verificar se o usuário já está cadastrado nesta unidade
+                            const existingUserInUnidade = unidadeUsers.find(u => u.email === email);
+                            if (existingUserInUnidade) {
+                                setError(`O email ${email} já está cadastrado nesta unidade. Verifique a lista de usuários abaixo.`);
+                            } else {
+                                setError(`Este email já possui uma conta em outra unidade ou sistema. O usuário pode fazer login diretamente com email/senha.`);
+                            }
                             setLoading(false);
                             return;
                         } else {
@@ -3860,39 +3866,105 @@ Equipe Sacramental LDS`);
             };
 
             const handleRemove = async (userId) => {
-                if (!confirm('Tem certeza que deseja remover este usuário da unidade?')) return;
+                const userDataStr = localStorage.getItem(`user_${userId}`);
+                if (!userDataStr) {
+                    setError('Usuário não encontrado.');
+                    return;
+                }
+                
+                const userData = JSON.parse(userDataStr);
+                const userEmail = userData.email;
+                
+                if (!confirm(`Tem certeza que deseja remover o acesso de ${userEmail}?\n\nIsso irá:\n- Remover o acesso à unidade\n- Remover o compartilhamento do Drive\n- O usuário não poderá mais acessar os dados desta unidade`)) {
+                    return;
+                }
+                
                 try {
-                    const userDataStr = localStorage.getItem(`user_${userId}`);
-                    if (userDataStr) {
-                        const userData = JSON.parse(userDataStr);
-                        userData.unidadeId = null;
-                        userData.status = 'removed';
-                        localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
-                        
-                        // Atualizar também no Drive
-                        if (driveFolderId) {
-                            try {
-                                let usersData = [];
-                                const existingUsersData = await carregarDoDrive(driveFolderId, 'users_data');
-                                if (existingUsersData && Array.isArray(existingUsersData)) {
-                                    usersData = existingUsersData;
+                    setLoading(true);
+                    
+                    // Remover compartilhamento do Drive
+                    if (driveFolderId && userEmail) {
+                        try {
+                            const token = await getGoogleAccessToken();
+                            
+                            // Buscar todas as permissões da pasta
+                            const permissionsResponse = await fetch(
+                                `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
+                                {
+                                    headers: { 'Authorization': `Bearer ${token}` },
                                 }
-                                const userIndex = usersData.findIndex(u => u.id === userId);
-                                if (userIndex >= 0) {
-                                    usersData[userIndex].status = 'removed';
-                                    usersData[userIndex].unidadeId = null;
+                            );
+                            
+                            if (permissionsResponse.ok) {
+                                const permissionsData = await permissionsResponse.json();
+                                const userPermission = permissionsData.permissions?.find(
+                                    p => p.emailAddress?.toLowerCase() === userEmail.toLowerCase()
+                                );
+                                
+                                if (userPermission) {
+                                    // Remover permissão
+                                    await fetch(
+                                        `${DRIVE_API_BASE}/files/${driveFolderId}/permissions/${userPermission.id}`,
+                                        {
+                                            method: 'DELETE',
+                                            headers: { 'Authorization': `Bearer ${token}` },
+                                        }
+                                    );
+                                    console.log('✅ Permissão do Drive removida para', userEmail);
                                 }
-                                await salvarNoDrive(driveFolderId, 'users_data', usersData);
-                            } catch (e) {
-                                console.warn("Erro ao salvar remoção no Drive:", e);
                             }
+                        } catch (e) {
+                            console.warn('⚠️ Erro ao remover permissão do Drive:', e);
+                            // Continuar mesmo se falhar
                         }
-                        
-                        // Recarregar lista de usuários
-                        window.location.reload();
                     }
+                    
+                    // Atualizar dados do usuário
+                    userData.unidadeId = null;
+                    userData.status = 'removed';
+                    userData.removidoEm = new Date().toISOString();
+                    localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
+                    
+                    // Atualizar também no Drive
+                    if (driveFolderId) {
+                        try {
+                            let usersData = [];
+                            const existingUsersData = await carregarDoDrive(driveFolderId, 'users_data');
+                            if (existingUsersData && Array.isArray(existingUsersData)) {
+                                usersData = existingUsersData;
+                            }
+                            const userIndex = usersData.findIndex(u => u.id === userId);
+                            if (userIndex >= 0) {
+                                usersData[userIndex].status = 'removed';
+                                usersData[userIndex].unidadeId = null;
+                                usersData[userIndex].removidoEm = new Date().toISOString();
+                            } else {
+                                // Se não encontrou, adicionar como removido
+                                usersData.push({
+                                    id: userId,
+                                    email: userEmail,
+                                    status: 'removed',
+                                    removidoEm: new Date().toISOString()
+                                });
+                            }
+                            await salvarNoDrive(driveFolderId, 'users_data', usersData);
+                            console.log('✅ Usuário removido do Drive');
+                        } catch (e) {
+                            console.warn("Erro ao salvar remoção no Drive:", e);
+                        }
+                    }
+                    
+                    setSuccess(`Acesso de ${userEmail} removido com sucesso!`);
+                    setLoading(false);
+                    
+                    // Recarregar lista de usuários após um pequeno delay
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
                 } catch (e) {
-                    setError('Erro ao remover usuário.');
+                    console.error('Erro ao remover usuário:', e);
+                    setError('Erro ao remover usuário. Tente novamente.');
+                    setLoading(false);
                 }
             };
 
@@ -3949,53 +4021,84 @@ Equipe Sacramental LDS`);
                             </form>
                         </div>
 
-                        {pendingUsers.length > 0 && (
-                            <div className="mb-6">
-                                <h3 className="font-bold text-sm text-gray-700 mb-2">Aguardando Aprovação ({pendingUsers.length})</h3>
-                                <div className="space-y-2">
-                                    {pendingUsers.map(u => (
-                                        <div key={u.id} className="flex justify-between items-center p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                                            <div>
-                                                <p className="font-medium text-gray-900">{u.email}</p>
-                                                <p className="text-xs text-gray-500">{u.nome}</p>
+                        {/* Lista de Usuários Cadastrados */}
+                        <div className="mt-6 border-t border-gray-200 pt-4">
+                            <h3 className="font-bold text-base text-gray-900 mb-3 flex items-center gap-2">
+                                <Users size={18} className="text-blue-600" />
+                                Usuários Cadastrados ({unidadeUsers.length})
+                            </h3>
+                            
+                            {pendingUsers.length > 0 && (
+                                <div className="mb-4">
+                                    <h4 className="font-semibold text-sm text-gray-700 mb-2">Aguardando Aprovação ({pendingUsers.length})</h4>
+                                    <div className="space-y-2">
+                                        {pendingUsers.map(u => (
+                                            <div key={u.id} className="flex justify-between items-center p-3 bg-amber-50 border border-amber-200 rounded-xl">
+                                                <div className="flex-1">
+                                                    <p className="font-medium text-gray-900">{u.email}</p>
+                                                    <p className="text-xs text-gray-500">{u.nome || 'Sem nome'}</p>
+                                                </div>
+                                                <button
+                                                    onClick={() => handleApprove(u.id)}
+                                                    className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all ml-2"
+                                                >
+                                                    Aprovar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleRemove(u.id)}
+                                                    className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all ml-1"
+                                                    title="Remover acesso"
+                                                >
+                                                    <Trash2 size={16} />
+                                                </button>
                                             </div>
-                                            <button
-                                                onClick={() => handleApprove(u.id)}
-                                                className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all"
-                                            >
-                                                Aprovar
-                                            </button>
-                                        </div>
-                                    ))}
+                                        ))}
+                                    </div>
                                 </div>
-                            </div>
-                        )}
+                            )}
 
-                        <div>
-                            <h3 className="font-bold text-sm text-gray-700 mb-2">Usuários Aprovados ({approvedUsers.length})</h3>
-                            <div className="space-y-2">
-                                {approvedUsers.map(u => (
-                                    <div key={u.id} className="flex justify-between items-center p-3 bg-gray-50 border border-gray-200 rounded-xl">
-                                        <div>
-                                            <p className="font-medium text-gray-900">{u.email}</p>
-                                            <div className="flex gap-2 items-center mt-1">
-                                                <span className="text-xs text-gray-500">{u.nome}</span>
-                                                {u.role === 'admin' && (
-                                                    <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-semibold">Admin</span>
+                            {approvedUsers.length > 0 && (
+                                <div>
+                                    <h4 className="font-semibold text-sm text-gray-700 mb-2">Usuários Aprovados ({approvedUsers.length})</h4>
+                                    <div className="space-y-2">
+                                        {approvedUsers.map(u => (
+                                            <div key={u.id} className="flex justify-between items-center p-3 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
+                                                <div className="flex-1">
+                                                    <p className="font-medium text-gray-900">{u.email}</p>
+                                                    <div className="flex gap-2 items-center mt-1">
+                                                        <span className="text-xs text-gray-500">{u.nome || 'Sem nome'}</span>
+                                                        {u.role === 'admin' && (
+                                                            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-semibold">Admin</span>
+                                                        )}
+                                                        {u.criadoEm && (
+                                                            <span className="text-xs text-gray-400">
+                                                                Criado em {new Date(u.criadoEm).toLocaleDateString('pt-BR')}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                                {u.role !== 'admin' && (
+                                                    <button
+                                                        onClick={() => handleRemove(u.id)}
+                                                        className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all ml-2"
+                                                        title="Remover acesso e excluir convite"
+                                                    >
+                                                        <Trash2 size={16} />
+                                                    </button>
                                                 )}
                                             </div>
-                                        </div>
-                                        {u.role !== 'admin' && (
-                                            <button
-                                                onClick={() => handleRemove(u.id)}
-                                                className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all"
-                                            >
-                                                <Trash2 size={16} />
-                                            </button>
-                                        )}
+                                        ))}
                                     </div>
-                                ))}
-                            </div>
+                                </div>
+                            )}
+
+                            {unidadeUsers.length === 0 && (
+                                <div className="text-center py-8 text-gray-500">
+                                    <Users size={32} className="mx-auto mb-2 opacity-50" />
+                                    <p className="text-sm">Nenhum usuário cadastrado ainda.</p>
+                                    <p className="text-xs mt-1">Use o formulário acima para criar o primeiro usuário.</p>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>
