@@ -976,12 +976,6 @@
                 setLoading(true);
                 setError('');
                 try {
-                    // Se houver token inserido no campo, salvar no localStorage
-                    if (inviteToken && inviteToken.trim()) {
-                        localStorage.setItem('pending_invite_token', inviteToken.trim());
-                        console.log('🔑 Token salvo no localStorage:', inviteToken.trim());
-                    }
-                    
                     const provider = new GoogleAuthProvider();
                     provider.addScope('email');
                     provider.addScope('profile');
@@ -990,6 +984,36 @@
                     const user = userCredential.user;
                     
                     console.log('✅ Login com Google realizado. UID:', user.uid, 'Email:', user.email);
+                    console.log('📋 Modo atual:', mode);
+                    
+                    // Se estiver na aba "Criar Unidade", criar unidade diretamente (SEM verificar convites/tokens)
+                    if (mode === 'register') {
+                        console.log('📝 Modo "Criar Unidade" - criando unidade diretamente');
+                        
+                        // Limpar qualquer token pendente do localStorage (não é necessário para criar unidade)
+                        localStorage.removeItem('pending_invite_token');
+                        
+                        // Se não tiver nome da unidade preenchido, mostrar modal
+                        if (!unidadeNome.trim()) {
+                            setPendingGoogleUser(user);
+                            setShowUnidadeModal(true);
+                            setLoading(false);
+                            return;
+                        }
+                        
+                        // Criar unidade com nome já preenchido
+                        await criarUnidadeComGoogle(user, unidadeNome.trim());
+                        return;
+                    }
+                    
+                    // Se estiver na aba "Entrar", seguir lógica normal de verificação
+                    console.log('🔍 Modo "Entrar" - Verificando se usuário já existe...');
+                    
+                    // Se houver token inserido no campo, salvar no localStorage
+                    if (inviteToken && inviteToken.trim()) {
+                        localStorage.setItem('pending_invite_token', inviteToken.trim());
+                        console.log('🔑 Token salvo no localStorage:', inviteToken.trim());
+                    }
                     
                     // Verificar se o usuário já existe (usando UID como chave principal)
                     const userDataStr = localStorage.getItem(`user_${user.uid}`);
@@ -1041,21 +1065,6 @@
                             setLoading(false);
                             return;
                         }
-                    }
-                    
-                    // Se estiver na aba "Criar Unidade", não buscar convites - apenas criar unidade
-                    if (mode === 'register') {
-                        console.log('📝 Modo "Criar Unidade" - pulando verificação de convites');
-                        // Se não tiver nome da unidade preenchido, mostrar modal
-                        if (!unidadeNome.trim()) {
-                            setPendingGoogleUser(user);
-                            setShowUnidadeModal(true);
-                            setLoading(false);
-                            return;
-                        }
-                        // Criar unidade com nome já preenchido
-                        await criarUnidadeComGoogle(user, unidadeNome.trim());
-                        return;
                     }
                     
                     // Se estiver na aba "Entrar", verificar se já existe no Drive (como admin ou usuário cadastrado)
