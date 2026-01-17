@@ -156,7 +156,7 @@
         let driveAccessToken = null;
 
         // Client ID do OAuth para Google Drive
-        const GOOGLE_OAUTH_CLIENT_ID = "911518938542-h72ljducua3o5cqv4q5onng1l4huurh3.apps.googleusercontent.com";
+        const GOOGLE_OAUTH_CLIENT_ID = "911518938542-asumst6ci5q0d055nm49qg8pr3v2oeqb.apps.googleusercontent.com";
         
         // Solicitar acesso ao Google Drive usando Google Identity Services
         const solicitarAcessoDrive = async () => {
@@ -1178,8 +1178,16 @@
                         errorMsg = 'Domínio não autorizado.\n\n' +
                             'Para autorizar:\n' +
                             '1. Firebase Console > Authentication > Settings > Authorized domains\n' +
-                            '2. Adicione: cerulean-malabi-da2e8d.netlify.app\n' +
-                            '3. Adicione: localhost (para testes)';
+                            '2. Adicione: arielbrandao25.github.io\n' +
+                            '3. Adicione: localhost (para testes)\n\n' +
+                            'Também configure no Google Cloud Console:\n' +
+                            '1. APIs & Services > Credentials > OAuth 2.0 Client ID\n' +
+                            '2. Adicione em "Authorized JavaScript origins":\n' +
+                            '   - https://arielbrandao25.github.io\n' +
+                            '   - http://arielbrandao25.github.io\n' +
+                            '3. Adicione em "Authorized redirect URIs":\n' +
+                            '   - https://arielbrandao25.github.io\n' +
+                            '   - http://arielbrandao25.github.io';
                     } else if (e.code === 'auth/network-request-failed') {
                         errorMsg = 'Erro de conexão. Verifique sua internet.';
                     } else if (e.message && (e.message.includes('OAuth client was not found') || e.message.includes('invalid_client'))) {
@@ -1190,9 +1198,13 @@
                             '3. APIs & Services > Credentials\n' +
                             '4. Verifique se existe um OAuth 2.0 Client ID do tipo "Web application"\n' +
                             '5. Verifique se as "Authorized JavaScript origins" incluem:\n' +
-                            '   - https://cerulean-malabi-da2e8d.netlify.app\n' +
+                            '   - https://arielbrandao25.github.io\n' +
+                            '   - http://arielbrandao25.github.io\n' +
                             '   - http://localhost\n' +
-                            '6. Verifique se o OAuth Consent Screen está configurado';
+                            '6. Verifique se as "Authorized redirect URIs" incluem:\n' +
+                            '   - https://arielbrandao25.github.io\n' +
+                            '   - http://arielbrandao25.github.io\n' +
+                            '7. Verifique se o OAuth Consent Screen está configurado';
                     } else {
                         errorMsg = `Erro: ${e.message || e.code || 'Tente novamente.'}\n\n` +
                             'Se o problema persistir, verifique:\n' +
