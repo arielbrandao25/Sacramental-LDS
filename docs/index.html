@@ -1043,11 +1043,101 @@
                         }
                     }
                     
-                    // Usuário novo - buscar convites pelo email automaticamente
-                    console.log('🆕 Usuário novo detectado. Buscando convites para:', user.email);
+                    // Usuário novo - verificar se já existe no Drive (como admin ou usuário cadastrado)
+                    console.log('🆕 Usuário novo detectado. Verificando se já existe no Drive...');
                     
-                    // Primeiro, tentar buscar convites pelo email (sem precisar de token)
-                    const conviteResultado = await buscarConvitesPorEmail(user.email);
+                    // Primeiro, verificar se o usuário já existe no Drive (pode ser admin ou usuário já cadastrado)
+                    try {
+                        await solicitarAcessoDrive();
+                        const token = await getGoogleAccessToken();
+                        const userEmailLower = (user.email || '').toLowerCase().trim();
+                        
+                        // Buscar todos os arquivos users_data.json no Drive
+                        const searchResponse = await fetch(
+                            `${DRIVE_API_BASE}/files?q=name='users_data.json' and trashed=false&fields=files(id,parents)`,
+                            {
+                                headers: { 'Authorization': `Bearer ${token}` },
+                            }
+                        );
+                        
+                        if (searchResponse.ok) {
+                            const searchData = await searchResponse.json();
+                            if (searchData.files && searchData.files.length > 0) {
+                                for (const file of searchData.files) {
+                                    try {
+                                        const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
+                                        if (folderId) {
+                                            const usersData = await carregarDoDrive(folderId, 'users_data');
+                                            if (usersData && Array.isArray(usersData)) {
+                                                // Buscar por email ou UID
+                                                const existingUser = usersData.find(u => {
+                                                    const uEmail = (u.email || '').toLowerCase().trim();
+                                                    return uEmail === userEmailLower || u.id === user.uid;
+                                                });
+                                                
+                                                if (existingUser) {
+                                                    console.log('✅ Usuário encontrado no Drive!', existingUser);
+                                                    // Atualizar com UID atual se necessário
+                                                    const newUserData = {
+                                                        id: user.uid,
+                                                        email: user.email,
+                                                        unidadeId: existingUser.unidadeId || folderId,
+                                                        role: existingUser.role || 'user',
+                                                        status: existingUser.status || 'approved',
+                                                        nome: user.displayName || existingUser.nome || user.email.split('@')[0],
+                                                        criadoEm: existingUser.criadoEm || new Date().toISOString()
+                                                    };
+                                                    
+                                                    // Salvar no localStorage
+                                                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
+                                                    
+                                                    // Atualizar no Drive com o UID atual
+                                                    const index = usersData.findIndex(u => 
+                                                        (u.email || '').toLowerCase().trim() === userEmailLower || u.id === user.uid
+                                                    );
+                                                    if (index >= 0) {
+                                                        usersData[index] = { ...usersData[index], ...newUserData, id: user.uid };
+                                                        await salvarNoDrive(folderId, 'users_data', usersData);
+                                                        console.log('💾 Usuário atualizado no Drive com UID:', user.uid);
+                                                    }
+                                                    
+                                                    // Salvar referência da unidade
+                                                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
+                                                        id: newUserData.unidadeId,
+                                                        driveFolderId: folderId
+                                                    }));
+                                                    
+                                                    // Fazer login
+                                                    onAuthSuccess({ 
+                                                        user, 
+                                                        unidadeId: newUserData.unidadeId, 
+                                                        role: newUserData.role,
+                                                        driveFolderId: folderId,
+                                                        status: newUserData.status
+                                                    });
+                                                    setLoading(false);
+                                                    return;
+                                                }
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.warn(`⚠️ Erro ao verificar usuário no Drive ${file.id}:`, e);
+                                    }
+                                }
+                            }
+                        }
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao verificar usuário no Drive:', e);
+                    }
+                    
+                    // Se não encontrou no Drive, buscar convites pendentes pelo email
+                    console.log('🔍 Buscando convites pendentes para:', user.email);
+                    let conviteResultado = null;
+                    try {
+                        conviteResultado = await buscarConvitesPorEmail(user.email);
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao buscar convites pelo email:', e);
+                    }
                     
                     if (conviteResultado && conviteResultado.invitation) {
                         // Convite encontrado - criar conta automaticamente usando UID
