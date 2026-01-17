@@ -770,15 +770,18 @@
         // --- APP PRINCIPAL ---
         // Componente de Autenticação
         function AuthScreen({ onAuthSuccess }) {
-            const [mode, setMode] = useState('login'); // 'login' ou 'register'
+            const [mode, setMode] = useState('login'); // 'login', 'register', 'createUnit'
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [unidadeNome, setUnidadeNome] = useState('');
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
+            const [success, setSuccess] = useState('');
             const [showUnidadeModal, setShowUnidadeModal] = useState(false);
             const [pendingGoogleUser, setPendingGoogleUser] = useState(null);
             const [tempUnidadeNome, setTempUnidadeNome] = useState('');
+            const [loggedInUser, setLoggedInUser] = useState(null); // Usuário que fez login mas ainda não escolheu unidade
+            const [availableUnits, setAvailableUnits] = useState([]); // Lista de unidades disponíveis
 
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -790,191 +793,208 @@
                     
                     console.log('✅ Login com email/senha realizado. UID:', user.uid, 'Email:', user.email);
                     
-                    // Buscar dados do usuário (localStorage primeiro)
-                    let userData = null;
-                    const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                    if (userDataStr) {
-                        userData = JSON.parse(userDataStr);
-                        console.log('👤 Usuário encontrado no localStorage:', userData);
+                    // Processar login (verificar se tem unidade ou mostrar seleção)
+                    await processarLoginSucesso(user);
+                } catch (e) {
+                    console.error('Erro ao fazer login:', e);
+                    if (e.code === 'auth/user-not-found' || e.message.includes('user-not-found')) {
+                        setError('Email não cadastrado. Crie uma conta primeiro.');
+                    } else if (e.code === 'auth/wrong-password' || e.message.includes('wrong-password')) {
+                        setError('Senha incorreta. Verifique sua senha.');
+                    } else if (e.code === 'auth/invalid-email') {
+                        setError('Email inválido. Verifique o formato do email.');
+                    } else {
+                        setError('Erro ao fazer login. Tente novamente.');
                     }
+                    setLoading(false);
+                }
+            };
+
+            // Função para buscar unidades disponíveis no Drive
+            const buscarUnidadesDisponiveis = async () => {
+                try {
+                    await solicitarAcessoDrive();
+                    const token = await getGoogleAccessToken();
                     
-                    // Se não encontrou no localStorage, buscar no Drive
-                    if (!userData || !userData.unidadeId) {
-                        console.log('🔍 Usuário não encontrado no localStorage, buscando no Drive...');
-                        try {
-                            await solicitarAcessoDrive();
-                            const token = await getGoogleAccessToken();
-                            const userEmailLower = (user.email || '').toLowerCase().trim();
-                            
-                            // Buscar todos os arquivos users_data.json no Drive
-                            const searchResponse = await fetch(
-                                `${DRIVE_API_BASE}/files?q=name='users_data.json' and trashed=false&fields=files(id,parents)`,
-                                {
-                                    headers: { 'Authorization': `Bearer ${token}` },
-                                }
-                            );
-                            
-                            if (searchResponse.ok) {
-                                const searchData = await searchResponse.json();
-                                if (searchData.files && searchData.files.length > 0) {
-                                    for (const file of searchData.files) {
-                                        try {
-                                            const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                            if (folderId) {
-                                                const usersData = await carregarDoDrive(folderId, 'users_data');
-                                                if (usersData && Array.isArray(usersData)) {
-                                                    // Buscar por email ou UID
-                                                    const foundUser = usersData.find(u => {
-                                                        const uEmail = (u.email || '').toLowerCase().trim();
-                                                        return uEmail === userEmailLower || u.id === user.uid;
-                                                    });
-                                                    
-                                                    if (foundUser) {
-                                                        console.log('✅ Usuário encontrado no Drive!', foundUser);
-                                                        // Criar dados do usuário com UID atual
-                                                        userData = {
-                                                            id: user.uid,
-                                                            email: user.email,
-                                                            unidadeId: foundUser.unidadeId || folderId,
-                                                            role: foundUser.role || 'user',
-                                                            status: foundUser.status || 'approved',
-                                                            nome: foundUser.nome || user.email.split('@')[0],
-                                                            criadoEm: foundUser.criadoEm || new Date().toISOString()
-                                                        };
-                                                        
-                                                        // Salvar no localStorage
-                                                        localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
-                                                        
-                                                        // Atualizar no Drive com o UID atual
-                                                        const index = usersData.findIndex(u => 
-                                                            (u.email || '').toLowerCase().trim() === userEmailLower || u.id === user.uid
-                                                        );
-                                                        if (index >= 0) {
-                                                            usersData[index] = { ...usersData[index], ...userData, id: user.uid };
-                                                            await salvarNoDrive(folderId, 'users_data', usersData);
-                                                            console.log('💾 Usuário atualizado no Drive com UID:', user.uid);
-                                                        }
-                                                        
-                                                        // Salvar referência da unidade
-                                                        localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                                                            id: userData.unidadeId,
-                                                            driveFolderId: folderId
-                                                        }));
-                                                        
-                                                        break;
-                                                    }
-                                                }
-                                            }
-                                        } catch (e) {
-                                            console.warn(`⚠️ Erro ao verificar usuário no Drive ${file.id}:`, e);
+                    // Buscar todas as pastas que são unidades (procurar por arquivo unidade_info.json)
+                    const searchResponse = await fetch(
+                        `${DRIVE_API_BASE}/files?q=name='unidade_info.json' and trashed=false&fields=files(id,parents)`,
+                        {
+                            headers: { 'Authorization': `Bearer ${token}` },
+                        }
+                    );
+                    
+                    if (searchResponse.ok) {
+                        const searchData = await searchResponse.json();
+                        const unidades = [];
+                        
+                        if (searchData.files && searchData.files.length > 0) {
+                            for (const file of searchData.files) {
+                                try {
+                                    const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
+                                    if (folderId) {
+                                        const unidadeInfo = await carregarDoDrive(folderId, 'unidade_info');
+                                        if (unidadeInfo) {
+                                            unidades.push({
+                                                id: unidadeInfo.id || folderId,
+                                                nome: unidadeInfo.nome || 'Unidade',
+                                                driveFolderId: folderId,
+                                                criadoEm: unidadeInfo.criadoEm,
+                                                adminEmail: unidadeInfo.adminEmail
+                                            });
                                         }
                                     }
+                                } catch (e) {
+                                    console.warn(`Erro ao carregar unidade ${file.id}:`, e);
                                 }
                             }
-                        } catch (e) {
-                            console.warn('⚠️ Erro ao buscar usuário no Drive:', e);
                         }
+                        
+                        return unidades;
+                    }
+                } catch (e) {
+                    console.warn('Erro ao buscar unidades:', e);
+                }
+                return [];
+            };
+
+            // Função para solicitar acesso à unidade
+            const solicitarAcessoUnidade = async (unidade) => {
+                setLoading(true);
+                setError('');
+                try {
+                    await solicitarAcessoDrive();
+                    const token = await getGoogleAccessToken();
+                    
+                    // Carregar ou criar arquivo de solicitações pendentes
+                    let pendingRequests = [];
+                    try {
+                        const existing = await carregarDoDrive(unidade.driveFolderId, 'pending_requests');
+                        if (existing && Array.isArray(existing)) {
+                            pendingRequests = existing;
+                        }
+                    } catch (e) {
+                        // Arquivo não existe, criar novo
                     }
                     
-                    // Verificar se encontrou os dados do usuário
-                    if (userData && userData.unidadeId) {
-                        const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
-                        const unidadeData = unidadeDataStr ? JSON.parse(unidadeDataStr) : null;
-                        
-                        // Solicitar acesso ao Drive
-                        try {
-                            await solicitarAcessoDrive();
-                        } catch (e) {
-                            console.warn("Acesso ao Drive não disponível, usando dados locais");
-                        }
-                        
-                        if (userData.status === 'approved') {
+                    // Verificar se já existe solicitação pendente
+                    const existingRequest = pendingRequests.find(r => 
+                        r.userId === loggedInUser.uid || r.email?.toLowerCase() === loggedInUser.email?.toLowerCase()
+                    );
+                    
+                    if (existingRequest) {
+                        setError('Você já tem uma solicitação pendente para esta unidade.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    // Adicionar nova solicitação
+                    const newRequest = {
+                        userId: loggedInUser.uid,
+                        email: loggedInUser.email,
+                        nome: loggedInUser.displayName || loggedInUser.email.split('@')[0],
+                        unidadeId: unidade.id,
+                        unidadeNome: unidade.nome,
+                        solicitadoEm: new Date().toISOString(),
+                        status: 'pending'
+                    };
+                    
+                    pendingRequests.push(newRequest);
+                    await salvarNoDrive(unidade.driveFolderId, 'pending_requests', pendingRequests);
+                    
+                    // Salvar dados do usuário com status pending
+                    localStorage.setItem(`user_${loggedInUser.uid}`, JSON.stringify({
+                        id: loggedInUser.uid,
+                        email: loggedInUser.email,
+                        unidadeId: unidade.id,
+                        role: 'user',
+                        status: 'pending',
+                        nome: loggedInUser.displayName || loggedInUser.email.split('@')[0],
+                        criadoEm: new Date().toISOString()
+                    }));
+                    
+                    setSuccess(`Solicitação de acesso enviada para "${unidade.nome}". Aguarde a aprovação do administrador.`);
+                    setLoading(false);
+                    
+                    // Voltar para tela de login após 3 segundos
+                    setTimeout(() => {
+                        setLoggedInUser(null);
+                        setAvailableUnits([]);
+                        setSuccess('');
+                    }, 3000);
+                } catch (e) {
+                    console.error('Erro ao solicitar acesso:', e);
+                    setError('Erro ao enviar solicitação. Tente novamente.');
+                    setLoading(false);
+                }
+            };
+
+            // Função para processar login/cadastro bem-sucedido
+            const processarLoginSucesso = async (user) => {
+                setLoading(true);
+                try {
+                    // Verificar se o usuário já tem uma unidade associada
+                    const userDataStr = localStorage.getItem(`user_${user.uid}`);
+                    if (userDataStr) {
+                        const userData = JSON.parse(userDataStr);
+                        if (userData.unidadeId && userData.status === 'approved') {
+                            // Usuário já tem unidade aprovada, fazer login direto
+                            const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
+                            const unidadeData = unidadeDataStr ? JSON.parse(unidadeDataStr) : null;
+                            
+                            try {
+                                await solicitarAcessoDrive();
+                            } catch (e) {
+                                console.warn("Acesso ao Drive não disponível");
+                            }
+                            
                             onAuthSuccess({ 
                                 user, 
                                 unidadeId: userData.unidadeId, 
                                 role: userData.role,
                                 driveFolderId: unidadeData?.driveFolderId || userData.unidadeId
                             });
-                        } else if (userData.status === 'pending') {
-                            // Permitir login mesmo com status pending
-                            onAuthSuccess({ 
-                                user, 
-                                unidadeId: userData.unidadeId, 
-                                role: userData.role,
-                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
-                                status: 'pending'
-                            });
-                        } else {
-                            setError('Você não tem acesso a nenhuma unidade. Entre em contato com o administrador.');
+                            setLoading(false);
+                            return;
                         }
-                    } else {
-                        setError('Usuário não encontrado. Você precisa ser cadastrado pelo administrador da unidade.');
-                        await signOut(auth);
                     }
+                    
+                    // Se não tem unidade, buscar unidades disponíveis e mostrar tela de seleção
+                    const unidades = await buscarUnidadesDisponiveis();
+                    setAvailableUnits(unidades);
+                    setLoggedInUser(user);
+                    setLoading(false);
                 } catch (e) {
-                    console.error('Erro ao fazer login:', e);
-                    if (e.code === 'auth/user-not-found' || e.message.includes('user-not-found')) {
-                        setError('Email não cadastrado. Você precisa ser cadastrado pelo administrador.');
-                    } else if (e.code === 'auth/wrong-password' || e.message.includes('wrong-password')) {
-                        setError('Senha incorreta. Verifique sua senha ou solicite uma nova ao administrador.');
-                    } else if (e.code === 'auth/invalid-email') {
-                        setError('Email inválido. Verifique o formato do email.');
-                    } else {
-                        setError('Erro ao fazer login. Tente novamente.');
-                    }
+                    console.error('Erro ao processar login:', e);
+                    setError('Erro ao carregar unidades. Tente novamente.');
+                    setLoading(false);
                 }
-                setLoading(false);
             };
 
             const handleRegister = async (e) => {
                 e.preventDefault();
-                if (!unidadeNome.trim()) {
-                    setError('Nome da unidade é obrigatório.');
-                    return;
-                }
                 setLoading(true);
                 setError('');
                 try {
                     const userCredential = await createUserWithEmailAndPassword(auth, email, password);
                     const user = userCredential.user;
                     
-                    // Solicitar acesso ao Drive
-                    try {
-                        await solicitarAcessoDrive();
-                    } catch (e) {
-                        setError('É necessário conceder acesso ao Google Drive para salvar os dados.');
-                        setLoading(false);
-                        return;
-                    }
+                    console.log('✅ Cadastro realizado. UID:', user.uid, 'Email:', user.email);
                     
-                    // Criar pasta no Drive do admin
-                    const folderId = await criarPastaUnidadeDrive(unidadeNome.trim());
-                    
-                    // Salvar informações da unidade no localStorage
-                    const unidadeData = {
-                        id: folderId,
-                        nome: unidadeNome.trim(),
-                        criadoPor: user.uid,
-                        criadoEm: new Date().toISOString(),
-                        adminEmail: email,
-                        driveFolderId: folderId
-                    };
-                    
-                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                    // Salvar dados básicos do usuário
                     localStorage.setItem(`user_${user.uid}`, JSON.stringify({
-                        email: email,
-                        unidadeId: folderId,
-                        role: 'admin',
-                        status: 'approved',
-                        nome: email.split('@')[0],
+                        id: user.uid,
+                        email: user.email,
+                        nome: user.email.split('@')[0],
                         criadoEm: new Date().toISOString()
                     }));
                     
-                    onAuthSuccess({ user, unidadeId: folderId, role: 'admin', driveFolderId: folderId });
+                    // Processar login (buscar unidades)
+                    await processarLoginSucesso(user);
                 } catch (e) {
                     console.error('Erro ao criar conta:', e);
                     if (e.code === 'auth/email-already-in-use') {
-                        setError('Este email já está cadastrado.');
+                        setError('Este email já está cadastrado. Faça login em vez de cadastrar.');
                     } else if (e.code === 'auth/weak-password') {
                         setError('A senha deve ter pelo menos 6 caracteres.');
                     } else if (e.code === 'auth/invalid-email') {
@@ -986,8 +1006,8 @@
                     } else {
                         setError(`Erro ao criar conta: ${e.message || 'Tente novamente.'}`);
                     }
+                    setLoading(false);
                 }
-                setLoading(false);
             };
 
 
@@ -1008,8 +1028,8 @@
                     console.log('✅ Login com Google realizado. UID:', user.uid, 'Email:', user.email);
                     console.log('📋 Modo atual:', mode);
                     
-                    // Se estiver na aba "Criar Unidade", criar unidade diretamente (SEM verificar convites/tokens)
-                    if (mode === 'register') {
+                    // Se estiver na aba "Criar Unidade", criar unidade diretamente
+                    if (mode === 'createUnit') {
                         console.log('📝 Modo "Criar Unidade" - criando unidade diretamente');
                         
                         // Limpar qualquer token pendente do localStorage (não é necessário para criar unidade)
@@ -1035,377 +1055,9 @@
                         return;
                     }
                     
-                    // Se estiver na aba "Entrar", verificar se usuário existe
-                    console.log('🔍 Modo "Entrar" - Verificando se usuário já existe...');
-                    
-                    // Verificar se o usuário já existe no localStorage (por UID)
-                    const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                    
-                    if (userDataStr) {
-                        // Usuário existe - fazer login
-                        const userData = JSON.parse(userDataStr);
-                        console.log('👤 Usuário existente encontrado no localStorage:', userData);
-                        
-                        if (userData.unidadeId && userData.status === 'approved') {
-                            const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
-                            const unidadeData = unidadeDataStr ? JSON.parse(unidadeDataStr) : null;
-                            
-                            try {
-                                await solicitarAcessoDrive();
-                            } catch (e) {
-                                console.warn("Acesso ao Drive não disponível, usando dados locais");
-                            }
-                            
-                            onAuthSuccess({ 
-                                user, 
-                                unidadeId: userData.unidadeId, 
-                                role: userData.role,
-                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId
-                            });
-                            setLoading(false);
-                            return;
-                        } else if (userData.status === 'pending') {
-                            const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
-                            const unidadeData = unidadeDataStr ? JSON.parse(unidadeDataStr) : null;
-                            
-                            try {
-                                await solicitarAcessoDrive();
-                            } catch (e) {
-                                console.warn("Acesso ao Drive não disponível, usando dados locais");
-                            }
-                            
-                            onAuthSuccess({ 
-                                user, 
-                                unidadeId: userData.unidadeId, 
-                                role: userData.role,
-                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
-                                status: 'pending'
-                            });
-                            setLoading(false);
-                            return;
-                        } else {
-                            setError('Você não tem acesso a nenhuma unidade.');
-                            setLoading(false);
-                            return;
-                        }
-                    }
-                    
-                    // Se não encontrou no localStorage, verificar convites e Drive
-                    try {
-                        await solicitarAcessoDrive();
-                        const token = await getGoogleAccessToken();
-                        const userEmailLower = (user.email || '').toLowerCase().trim();
-                        
-                        // Primeiro, verificar se o email está na lista de convites
-                        console.log('🔍 Verificando se email está na lista de convites...', userEmailLower);
-                        let foundInvite = null;
-                        let driveFolderIdFromInvite = null;
-                        
-                        // Buscar todos os arquivos invited_emails.json no Drive (incluindo compartilhados)
-                        const inviteSearchResponse = await fetch(
-                            `${DRIVE_API_BASE}/files?q=name='invited_emails.json' and trashed=false&fields=files(id,parents,name)`,
-                            {
-                                headers: { 'Authorization': `Bearer ${token}` },
-                            }
-                        );
-                        
-                        console.log('📋 Resposta da busca de convites:', inviteSearchResponse.status);
-                        
-                        if (inviteSearchResponse.ok) {
-                            const inviteSearchData = await inviteSearchResponse.json();
-                            console.log('📋 Arquivos invited_emails.json encontrados:', inviteSearchData.files?.length || 0);
-                            
-                            if (inviteSearchData.files && inviteSearchData.files.length > 0) {
-                                for (const file of inviteSearchData.files) {
-                                    try {
-                                        const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                        if (folderId) {
-                                            console.log(`🔍 Verificando pasta ${folderId}...`);
-                                            const invitedEmails = await carregarDoDrive(folderId, 'invited_emails');
-                                            console.log(`📧 Emails na lista de convites desta pasta:`, invitedEmails);
-                                            
-                                            if (invitedEmails && Array.isArray(invitedEmails)) {
-                                                const isInvited = invitedEmails.some(e => {
-                                                    const eLower = (e || '').toLowerCase().trim();
-                                                    const match = eLower === userEmailLower;
-                                                    if (match) {
-                                                        console.log(`✅ Match encontrado! Email na lista: "${e}", Email do usuário: "${userEmailLower}"`);
-                                                    }
-                                                    return match;
-                                                });
-                                                
-                                                if (isInvited) {
-                                                    console.log('✅ Email encontrado na lista de convites!', folderId);
-                                                    foundInvite = true;
-                                                    driveFolderIdFromInvite = folderId;
-                                                    
-                                                    // Buscar dados da unidade
-                                                    let unidadeData = null;
-                                                    let unidadeId = folderId;
-                                                    try {
-                                                        unidadeData = await carregarDoDrive(folderId, 'unidade_info');
-                                                        if (unidadeData?.id) {
-                                                            unidadeId = unidadeData.id;
-                                                        }
-                                                    } catch (e) {
-                                                        console.warn('⚠️ Erro ao buscar dados da unidade, usando folderId:', e);
-                                                    }
-                                                    
-                                                    // Criar dados do usuário automaticamente
-                                                    const newUserData = {
-                                                        id: user.uid,
-                                                        email: user.email,
-                                                        unidadeId: unidadeId,
-                                                        role: 'user',
-                                                        status: 'approved',
-                                                        nome: user.displayName || user.email.split('@')[0],
-                                                        criadoEm: new Date().toISOString(),
-                                                        criadoPor: 'invite'
-                                                    };
-                                                    
-                                                    // Salvar no localStorage
-                                                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
-                                                    
-                                                    // Salvar no Drive
-                                                    let usersData = [];
-                                                    try {
-                                                        const existingUsersData = await carregarDoDrive(folderId, 'users_data');
-                                                        if (existingUsersData && Array.isArray(existingUsersData)) {
-                                                            usersData = existingUsersData;
-                                                        }
-                                                    } catch (e) {
-                                                        // Arquivo não existe, criar novo
-                                                    }
-                                                    
-                                                    // Verificar se já não está na lista
-                                                    const existingIndex = usersData.findIndex(u => u.id === user.uid || u.email?.toLowerCase() === userEmailLower);
-                                                    if (existingIndex >= 0) {
-                                                        usersData[existingIndex] = { ...usersData[existingIndex], ...newUserData, id: user.uid };
-                                                    } else {
-                                                        usersData.push(newUserData);
-                                                    }
-                                                    
-                                                    await salvarNoDrive(folderId, 'users_data', usersData);
-                                                    console.log('💾 Usuário criado automaticamente no Drive');
-                                                    
-                                                    // Salvar referência da unidade
-                                                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                                                        id: unidadeId,
-                                                        driveFolderId: folderId,
-                                                        nome: unidadeData?.nome || 'Unidade'
-                                                    }));
-                                                    
-                                                    // Fazer login
-                                                    onAuthSuccess({ 
-                                                        user, 
-                                                        unidadeId: unidadeId, 
-                                                        role: 'user',
-                                                        driveFolderId: folderId,
-                                                        status: 'approved'
-                                                    });
-                                                    setLoading(false);
-                                                    return;
-                                                }
-                                            }
-                                        }
-                                    } catch (e) {
-                                        console.warn(`⚠️ Erro ao verificar convite no arquivo ${file.id}:`, e);
-                                        console.error('Detalhes do erro:', e.message, e.stack);
-                                    }
-                                }
-                            } else {
-                                console.log('⚠️ Nenhum arquivo invited_emails.json encontrado no Drive');
-                            }
-                        } else {
-                            const errorText = await inviteSearchResponse.text();
-                            console.error('❌ Erro ao buscar convites:', inviteSearchResponse.status, errorText);
-                        }
-                        
-                        // Se não encontrou convite, tentar buscar diretamente em pastas compartilhadas
-                        if (!foundInvite) {
-                            console.log('🔍 Tentando buscar em pastas compartilhadas...');
-                            
-                            try {
-                                const sharedFoldersResponse = await fetch(
-                                    `${DRIVE_API_BASE}/files?q=mimeType='application/vnd.google-apps.folder' and sharedWithMe=true and trashed=false&fields=files(id,name)`,
-                                    {
-                                        headers: { 'Authorization': `Bearer ${token}` },
-                                    }
-                                );
-                                
-                                if (sharedFoldersResponse.ok) {
-                                    const sharedData = await sharedFoldersResponse.json();
-                                    console.log('📁 Pastas compartilhadas encontradas:', sharedData.files?.length || 0);
-                                    
-                                    if (sharedData.files && sharedData.files.length > 0) {
-                                        for (const folder of sharedData.files) {
-                                            try {
-                                                const invitedEmails = await carregarDoDrive(folder.id, 'invited_emails');
-                                                if (invitedEmails && Array.isArray(invitedEmails)) {
-                                                    console.log(`📧 Verificando pasta compartilhada ${folder.name} (${folder.id}):`, invitedEmails);
-                                                    const isInvited = invitedEmails.some(e => {
-                                                        const eLower = (e || '').toLowerCase().trim();
-                                                        return eLower === userEmailLower;
-                                                    });
-                                                    
-                                                    if (isInvited) {
-                                                        console.log('✅ Email encontrado em pasta compartilhada!', folder.id);
-                                                        foundInvite = true;
-                                                        driveFolderIdFromInvite = folder.id;
-                                                        
-                                                        // Buscar dados da unidade
-                                                        let unidadeData = null;
-                                                        let unidadeId = folder.id;
-                                                        try {
-                                                            unidadeData = await carregarDoDrive(folder.id, 'unidade_info');
-                                                            if (unidadeData?.id) {
-                                                                unidadeId = unidadeData.id;
-                                                            }
-                                                        } catch (e) {
-                                                            console.warn('⚠️ Erro ao buscar dados da unidade:', e);
-                                                        }
-                                                        
-                                                        // Criar dados do usuário automaticamente
-                                                        const newUserData = {
-                                                            id: user.uid,
-                                                            email: user.email,
-                                                            unidadeId: unidadeId,
-                                                            role: 'user',
-                                                            status: 'approved',
-                                                            nome: user.displayName || user.email.split('@')[0],
-                                                            criadoEm: new Date().toISOString(),
-                                                            criadoPor: 'invite'
-                                                        };
-                                                        
-                                                        localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
-                                                        
-                                                        let usersData = [];
-                                                        try {
-                                                            const existingUsersData = await carregarDoDrive(folder.id, 'users_data');
-                                                            if (existingUsersData && Array.isArray(existingUsersData)) {
-                                                                usersData = existingUsersData;
-                                                            }
-                                                        } catch (e) {
-                                                            // Arquivo não existe, criar novo
-                                                        }
-                                                        
-                                                        const existingIndex = usersData.findIndex(u => u.id === user.uid || u.email?.toLowerCase() === userEmailLower);
-                                                        if (existingIndex >= 0) {
-                                                            usersData[existingIndex] = { ...usersData[existingIndex], ...newUserData, id: user.uid };
-                                                        } else {
-                                                            usersData.push(newUserData);
-                                                        }
-                                                        
-                                                        await salvarNoDrive(folder.id, 'users_data', usersData);
-                                                        console.log('💾 Usuário criado automaticamente no Drive');
-                                                        
-                                                        localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                                                            id: unidadeId,
-                                                            driveFolderId: folder.id,
-                                                            nome: unidadeData?.nome || folder.name || 'Unidade'
-                                                        }));
-                                                        
-                                                        onAuthSuccess({ 
-                                                            user, 
-                                                            unidadeId: unidadeId, 
-                                                            role: 'user',
-                                                            driveFolderId: folder.id,
-                                                            status: 'approved'
-                                                        });
-                                                        setLoading(false);
-                                                        return;
-                                                    }
-                                                }
-                                            } catch (e) {
-                                                console.warn(`⚠️ Erro ao verificar pasta compartilhada ${folder.id}:`, e);
-                                            }
-                                        }
-                                    }
-                                }
-                            } catch (e) {
-                                console.warn('⚠️ Erro ao buscar pastas compartilhadas:', e);
-                            }
-                        }
-                        
-                        // Se ainda não encontrou convite, verificar se já existe como usuário no Drive
-                        if (!foundInvite) {
-                            console.log('🔍 Email não está na lista de convites, verificando se já é usuário...');
-                            const searchResponse = await fetch(
-                                `${DRIVE_API_BASE}/files?q=name='users_data.json' and trashed=false&fields=files(id,parents)`,
-                                {
-                                    headers: { 'Authorization': `Bearer ${token}` },
-                                }
-                            );
-                            
-                            if (searchResponse.ok) {
-                                const searchData = await searchResponse.json();
-                                if (searchData.files && searchData.files.length > 0) {
-                                    for (const file of searchData.files) {
-                                        try {
-                                            const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                            if (folderId) {
-                                                const usersData = await carregarDoDrive(folderId, 'users_data');
-                                                if (usersData && Array.isArray(usersData)) {
-                                                    const existingUser = usersData.find(u => {
-                                                        const uEmail = (u.email || '').toLowerCase().trim();
-                                                        return uEmail === userEmailLower || u.id === user.uid;
-                                                    });
-                                                    
-                                                    if (existingUser) {
-                                                        console.log('✅ Usuário encontrado no Drive!', existingUser);
-                                                        const newUserData = {
-                                                            id: user.uid,
-                                                            email: user.email,
-                                                            unidadeId: existingUser.unidadeId || folderId,
-                                                            role: existingUser.role || 'user',
-                                                            status: existingUser.status || 'approved',
-                                                            nome: user.displayName || existingUser.nome || user.email.split('@')[0],
-                                                            criadoEm: existingUser.criadoEm || new Date().toISOString()
-                                                        };
-                                                        
-                                                        localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
-                                                        
-                                                        const index = usersData.findIndex(u => 
-                                                            (u.email || '').toLowerCase().trim() === userEmailLower || u.id === user.uid
-                                                        );
-                                                        if (index >= 0) {
-                                                            usersData[index] = { ...usersData[index], ...newUserData, id: user.uid };
-                                                            await salvarNoDrive(folderId, 'users_data', usersData);
-                                                        }
-                                                        
-                                                        localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                                                            id: newUserData.unidadeId,
-                                                            driveFolderId: folderId
-                                                        }));
-                                                        
-                                                        onAuthSuccess({ 
-                                                            user, 
-                                                            unidadeId: newUserData.unidadeId, 
-                                                            role: newUserData.role,
-                                                            driveFolderId: folderId,
-                                                            status: newUserData.status
-                                                        });
-                                                        setLoading(false);
-                                                        return;
-                                                    }
-                                                }
-                                            }
-                                        } catch (e) {
-                                            console.warn(`⚠️ Erro ao verificar usuário no Drive ${file.id}:`, e);
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    } catch (e) {
-                        console.warn('⚠️ Erro ao verificar convites/usuários no Drive:', e);
-                    }
-                    
-                    // Se não encontrou em lugar nenhum
-                    console.log('❌ Usuário não encontrado e não está na lista de convites.');
-                    setError('Você não está na lista de convidados desta unidade. Entre em contato com o administrador para receber um convite.');
-                    await signOut(auth);
-                    setLoading(false);
+                    // Se estiver na aba "Entrar" ou "Cadastrar", processar login normalmente
+                    console.log('🔍 Modo "Entrar/Cadastrar" - Processando login...');
+                    await processarLoginSucesso(user);
                     
                 } catch (e) {
                     console.error('Erro ao fazer login com Google:', e);
@@ -1469,6 +1121,31 @@
                     // Sempre desativar loading, mesmo se houver erro não capturado
                     setLoading(false);
                     console.log('✅ Loading desativado após login');
+                }
+            };
+
+            const handleCreateUnit = async (e) => {
+                e.preventDefault();
+                if (!unidadeNome.trim()) {
+                    setError('Nome da unidade é obrigatório.');
+                    return;
+                }
+                setLoading(true);
+                setError('');
+                try {
+                    // Verificar se o usuário está logado
+                    const currentUser = auth.currentUser;
+                    if (!currentUser) {
+                        setError('Você precisa estar logado para criar uma unidade. Faça login primeiro.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    await criarUnidadeComGoogle(currentUser, unidadeNome.trim());
+                } catch (e) {
+                    console.error('Erro ao criar unidade:', e);
+                    setError('Erro ao criar unidade. Tente novamente.');
+                    setLoading(false);
                 }
             };
 
@@ -1581,9 +1258,9 @@
                                 Entrar
                             </button>
                             <button
-                                onClick={() => { setMode('register'); setError(''); }}
+                                onClick={() => { setMode('createUnit'); setError(''); }}
                                 className={`flex-1 py-2 rounded-lg font-semibold transition-all ${
-                                    mode === 'register' 
+                                    mode === 'createUnit' 
                                         ? 'bg-white shadow-md text-blue-900' 
                                         : 'text-gray-600'
                                 }`}
@@ -1598,8 +1275,14 @@
                             </div>
                         )}
                         
-                        <form onSubmit={mode === 'login' ? handleLogin : handleRegister} className="space-y-4">
-                            {mode === 'register' && (
+                        {success && (
+                            <div className="bg-green-50 border-2 border-green-200 text-green-800 p-3 rounded-xl mb-4 text-sm">
+                                {success}
+                            </div>
+                        )}
+                        
+                        <form onSubmit={mode === 'login' ? handleLogin : (mode === 'register' ? handleRegister : handleCreateUnit)} className="space-y-4">
+                            {mode === 'createUnit' && (
                                 <div>
                                     <label className="block text-sm font-semibold text-gray-700 mb-2">Nome da Unidade</label>
                                     <input
@@ -1643,7 +1326,7 @@
                                 disabled={loading}
                                 className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white p-4 rounded-xl font-bold shadow-lg hover:shadow-xl hover:scale-[1.02] transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                             >
-                                {loading ? 'Processando...' : (mode === 'login' ? 'Entrar' : 'Criar Unidade')}
+                                {loading ? 'Processando...' : (mode === 'login' ? 'Entrar' : (mode === 'register' ? 'Cadastrar' : 'Criar Unidade'))}
                             </button>
                         </form>
 
@@ -1670,12 +1353,118 @@
                             {loading ? 'Processando...' : `Continuar com Google`}
                         </button>
                         
-                        {mode === 'register' && (
+                        {mode === 'createUnit' && (
                             <p className="text-xs text-gray-500 mt-4 text-center">
                                 Ao criar uma unidade, você será o responsável e poderá autorizar outros usuários.
                             </p>
                         )}
+                        
+                        {mode === 'login' && (
+                            <p className="text-xs text-gray-500 mt-4 text-center">
+                                Não tem conta? <button type="button" onClick={() => setMode('register')} className="text-blue-600 hover:underline font-semibold">Cadastre-se</button>
+                            </p>
+                        )}
+                        
+                        {mode === 'register' && (
+                            <p className="text-xs text-gray-500 mt-4 text-center">
+                                Já tem conta? <button type="button" onClick={() => setMode('login')} className="text-blue-600 hover:underline font-semibold">Faça login</button>
+                            </p>
+                        )}
                     </div>
+
+                    {/* Tela de seleção de unidades */}
+                    {loggedInUser && (
+                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 p-6 animate-slide-up max-h-[90vh] overflow-y-auto">
+                                <h3 className="text-xl font-bold text-gray-900 mb-2">Selecione uma Unidade</h3>
+                                <p className="text-sm text-gray-600 mb-4">
+                                    Escolha a unidade que deseja acessar. Uma solicitação será enviada ao administrador.
+                                </p>
+                                
+                                {error && (
+                                    <div className="bg-red-50 border-2 border-red-200 text-red-800 p-3 rounded-xl mb-4 text-sm">
+                                        {error}
+                                    </div>
+                                )}
+                                
+                                {success && (
+                                    <div className="bg-green-50 border-2 border-green-200 text-green-800 p-3 rounded-xl mb-4 text-sm">
+                                        {success}
+                                    </div>
+                                )}
+                                
+                                {loading && (
+                                    <div className="text-center py-4">
+                                        <p className="text-gray-600">Carregando unidades...</p>
+                                    </div>
+                                )}
+                                
+                                {!loading && availableUnits.length === 0 && (
+                                    <div className="text-center py-8">
+                                        <p className="text-gray-500 mb-4">Nenhuma unidade encontrada.</p>
+                                        <button
+                                            onClick={() => {
+                                                setLoggedInUser(null);
+                                                setAvailableUnits([]);
+                                                setMode('createUnit');
+                                            }}
+                                            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-xl font-semibold hover:shadow-lg transition-all"
+                                        >
+                                            Criar Nova Unidade
+                                        </button>
+                                    </div>
+                                )}
+                                
+                                {!loading && availableUnits.length > 0 && (
+                                    <div className="space-y-3 mb-4">
+                                        {availableUnits.map(unidade => (
+                                            <button
+                                                key={unidade.id}
+                                                onClick={() => solicitarAcessoUnidade(unidade)}
+                                                disabled={loading}
+                                                className="w-full text-left p-4 border-2 border-gray-200 rounded-xl hover:border-blue-500 hover:bg-blue-50 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                            >
+                                                <div className="flex items-center justify-between">
+                                                    <div>
+                                                        <p className="font-semibold text-gray-900">{unidade.nome}</p>
+                                                        {unidade.adminEmail && (
+                                                            <p className="text-xs text-gray-500 mt-1">Admin: {unidade.adminEmail}</p>
+                                                        )}
+                                                    </div>
+                                                    <ChevronRight size={20} className="text-gray-400" />
+                                                </div>
+                                            </button>
+                                        ))}
+                                    </div>
+                                )}
+                                
+                                <div className="flex gap-3 mt-4">
+                                    <button
+                                        onClick={() => {
+                                            setLoggedInUser(null);
+                                            setAvailableUnits([]);
+                                            setError('');
+                                            setSuccess('');
+                                            signOut(auth);
+                                        }}
+                                        className="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
+                                    >
+                                        Cancelar
+                                    </button>
+                                    <button
+                                        onClick={() => {
+                                            setLoggedInUser(null);
+                                            setAvailableUnits([]);
+                                            setMode('createUnit');
+                                        }}
+                                        className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white p-3 rounded-xl font-semibold hover:shadow-lg transition-all"
+                                    >
+                                        Criar Nova Unidade
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    )}
 
                     {/* Modal para nome da unidade após login com Google */}
                     {showUnidadeModal && (
@@ -3977,10 +3766,11 @@
             const [error, setError] = useState('');
             const [success, setSuccess] = useState('');
             const [invitedEmails, setInvitedEmails] = useState([]);
+            const [pendingRequests, setPendingRequests] = useState([]);
 
-            // Carregar lista de emails convidados ao montar o componente
+            // Carregar lista de emails convidados e solicitações pendentes ao montar o componente
             useEffect(() => {
-                const loadInvitedEmails = async () => {
+                const loadData = async () => {
                     if (driveFolderId) {
                         try {
                             const invitations = await carregarDoDrive(driveFolderId, 'invited_emails');
@@ -3988,12 +3778,21 @@
                                 setInvitedEmails(invitations);
                             }
                         } catch (e) {
-                            // Arquivo não existe ainda, criar lista vazia
                             setInvitedEmails([]);
+                        }
+                        
+                        try {
+                            const requests = await carregarDoDrive(driveFolderId, 'pending_requests');
+                            if (requests && Array.isArray(requests)) {
+                                // Filtrar apenas solicitações pendentes
+                                setPendingRequests(requests.filter(r => r.status === 'pending'));
+                            }
+                        } catch (e) {
+                            setPendingRequests([]);
                         }
                     }
                 };
-                loadInvitedEmails();
+                loadData();
             }, [driveFolderId]);
 
             const handleInvite = async (e) => {
@@ -4184,12 +3983,14 @@ Equipe Sacramental LDS`);
                 }
             };
 
-            const handleApprove = async (userId) => {
+            const handleApprove = async (userId, requestId = null) => {
                 try {
+                    setLoading(true);
                     const userDataStr = localStorage.getItem(`user_${userId}`);
                     if (userDataStr) {
                         const userData = JSON.parse(userDataStr);
                         userData.status = 'approved';
+                        userData.unidadeId = unidadeId;
                         localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
                         
                         // Atualizar também no Drive
@@ -4202,21 +4003,105 @@ Equipe Sacramental LDS`);
                                 }
                                 const userIndex = usersData.findIndex(u => u.id === userId);
                                 if (userIndex >= 0) {
-                                    usersData[userIndex].status = 'approved';
+                                    usersData[userIndex] = { ...usersData[userIndex], ...userData, status: 'approved', unidadeId: unidadeId };
                                 } else {
-                                    usersData.push({ id: userId, ...userData });
+                                    usersData.push({ id: userId, ...userData, status: 'approved', unidadeId: unidadeId });
                                 }
                                 await salvarNoDrive(driveFolderId, 'users_data', usersData);
+                                
+                                // Se foi uma solicitação pendente, remover da lista
+                                if (requestId) {
+                                    let allRequests = [];
+                                    try {
+                                        const existingRequests = await carregarDoDrive(driveFolderId, 'pending_requests');
+                                        if (existingRequests && Array.isArray(existingRequests)) {
+                                            allRequests = existingRequests;
+                                        }
+                                    } catch (e) {
+                                        // Arquivo não existe
+                                    }
+                                    
+                                    // Marcar solicitação como aprovada
+                                    const requestIndex = allRequests.findIndex(r => r.userId === userId || r.email?.toLowerCase() === userData.email?.toLowerCase());
+                                    if (requestIndex >= 0) {
+                                        allRequests[requestIndex].status = 'approved';
+                                        allRequests[requestIndex].aprovadoEm = new Date().toISOString();
+                                    }
+                                    
+                                    await salvarNoDrive(driveFolderId, 'pending_requests', allRequests);
+                                    setPendingRequests(allRequests.filter(r => r.status === 'pending'));
+                                }
+                                
+                                // Compartilhar pasta do Drive com o usuário
+                                try {
+                                    const token = await getGoogleAccessToken();
+                                    await fetch(
+                                        `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
+                                        {
+                                            method: 'POST',
+                                            headers: {
+                                                'Authorization': `Bearer ${token}`,
+                                                'Content-Type': 'application/json',
+                                            },
+                                            body: JSON.stringify({
+                                                role: 'writer',
+                                                type: 'user',
+                                                emailAddress: userData.email,
+                                                sendNotificationEmail: false
+                                            })
+                                        }
+                                    );
+                                } catch (e) {
+                                    console.warn('Erro ao compartilhar pasta:', e);
+                                }
                             } catch (e) {
                                 console.warn("Erro ao salvar aprovação no Drive:", e);
                             }
                         }
                         
-                        // Recarregar lista de usuários
-                        window.location.reload();
+                        setSuccess(`Usuário ${userData.email} aprovado com sucesso!`);
+                        setTimeout(() => {
+                            window.location.reload();
+                        }, 1000);
                     }
                 } catch (e) {
                     setError('Erro ao aprovar usuário.');
+                } finally {
+                    setLoading(false);
+                }
+            };
+            
+            const handleRejectRequest = async (request) => {
+                if (!confirm(`Rejeitar solicitação de ${request.email}?`)) return;
+                
+                try {
+                    setLoading(true);
+                    let allRequests = [];
+                    try {
+                        const existingRequests = await carregarDoDrive(driveFolderId, 'pending_requests');
+                        if (existingRequests && Array.isArray(existingRequests)) {
+                            allRequests = existingRequests;
+                        }
+                    } catch (e) {
+                        // Arquivo não existe
+                    }
+                    
+                    // Marcar como rejeitada
+                    const requestIndex = allRequests.findIndex(r => 
+                        r.userId === request.userId || r.email?.toLowerCase() === request.email?.toLowerCase()
+                    );
+                    if (requestIndex >= 0) {
+                        allRequests[requestIndex].status = 'rejected';
+                        allRequests[requestIndex].rejeitadoEm = new Date().toISOString();
+                    }
+                    
+                    await salvarNoDrive(driveFolderId, 'pending_requests', allRequests);
+                    setPendingRequests(allRequests.filter(r => r.status === 'pending'));
+                    setSuccess('Solicitação rejeitada.');
+                } catch (e) {
+                    setError('Erro ao rejeitar solicitação.');
+                } finally {
+                    setLoading(false);
                 }
             };
 
@@ -4375,6 +4260,63 @@ Equipe Sacramental LDS`);
                                 <p className="text-xs text-gray-600">A pessoa receberá um convite e poderá fazer login com Google usando este email.</p>
                             </form>
                         </div>
+
+                        {/* Lista de Solicitações Pendentes */}
+                        {pendingRequests.length > 0 && (
+                            <div className="mb-6 p-4 bg-blue-50 rounded-xl border-2 border-blue-200">
+                                <h4 className="font-semibold text-sm text-gray-700 mb-2 flex items-center gap-2">
+                                    <Users size={16} className="text-blue-600" />
+                                    Solicitações de Acesso ({pendingRequests.length})
+                                </h4>
+                                <p className="text-xs text-gray-600 mb-3">Usuários que solicitaram acesso à unidade:</p>
+                                <div className="space-y-2">
+                                    {pendingRequests.map((request, index) => (
+                                        <div key={index} className="flex justify-between items-center p-3 bg-white border border-blue-200 rounded-xl">
+                                            <div className="flex-1">
+                                                <p className="font-medium text-gray-900">{request.email}</p>
+                                                {request.nome && (
+                                                    <p className="text-xs text-gray-500">{request.nome}</p>
+                                                )}
+                                                {request.solicitadoEm && (
+                                                    <p className="text-xs text-gray-400 mt-1">
+                                                        Solicitado em {new Date(request.solicitadoEm).toLocaleDateString('pt-BR')}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div className="flex items-center gap-2 ml-3">
+                                                <button
+                                                    onClick={() => {
+                                                        // Criar ou atualizar dados do usuário
+                                                        const userData = {
+                                                            id: request.userId,
+                                                            email: request.email,
+                                                            nome: request.nome || request.email.split('@')[0],
+                                                            unidadeId: unidadeId,
+                                                            role: 'user',
+                                                            status: 'pending',
+                                                            criadoEm: request.solicitadoEm || new Date().toISOString()
+                                                        };
+                                                        localStorage.setItem(`user_${request.userId}`, JSON.stringify(userData));
+                                                        handleApprove(request.userId, request.userId);
+                                                    }}
+                                                    className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all"
+                                                    title="Aprovar solicitação"
+                                                >
+                                                    Aprovar
+                                                </button>
+                                                <button
+                                                    onClick={() => handleRejectRequest(request)}
+                                                    className="bg-red-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-red-700 transition-all"
+                                                    title="Rejeitar solicitação"
+                                                >
+                                                    Rejeitar
+                                                </button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
 
                         {/* Lista de Emails Convidados (ainda não fizeram login) */}
                         {invitedEmails.length > 0 && (
