@@ -813,12 +813,17 @@
             // Função para buscar unidades disponíveis no Drive
             const buscarUnidadesDisponiveis = async () => {
                 try {
+                    console.log('🔍 Buscando unidades disponíveis...');
                     await solicitarAcessoDrive();
                     const token = await getGoogleAccessToken();
                     
-                    // Buscar todas as pastas que são unidades (procurar por arquivo unidade_info.json)
+                    const unidades = [];
+                    const unidadesEncontradas = new Set(); // Para evitar duplicatas
+                    
+                    // Método 1: Buscar arquivos unidade_info.json diretamente
+                    console.log('📋 Método 1: Buscando arquivos unidade_info.json...');
                     const searchResponse = await fetch(
-                        `${DRIVE_API_BASE}/files?q=name='unidade_info.json' and trashed=false&fields=files(id,parents)`,
+                        `${DRIVE_API_BASE}/files?q=name='unidade_info.json' and trashed=false&fields=files(id,parents,name)`,
                         {
                             headers: { 'Authorization': `Bearer ${token}` },
                         }
@@ -826,13 +831,14 @@
                     
                     if (searchResponse.ok) {
                         const searchData = await searchResponse.json();
-                        const unidades = [];
+                        console.log('📋 Arquivos unidade_info.json encontrados:', searchData.files?.length || 0);
                         
                         if (searchData.files && searchData.files.length > 0) {
                             for (const file of searchData.files) {
                                 try {
                                     const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                    if (folderId) {
+                                    if (folderId && !unidadesEncontradas.has(folderId)) {
+                                        console.log(`📁 Carregando unidade da pasta ${folderId}...`);
                                         const unidadeInfo = await carregarDoDrive(folderId, 'unidade_info');
                                         if (unidadeInfo) {
                                             unidades.push({
@@ -842,18 +848,71 @@
                                                 criadoEm: unidadeInfo.criadoEm,
                                                 adminEmail: unidadeInfo.adminEmail
                                             });
+                                            unidadesEncontradas.add(folderId);
+                                            console.log(`✅ Unidade encontrada: ${unidadeInfo.nome} (${folderId})`);
                                         }
                                     }
                                 } catch (e) {
-                                    console.warn(`Erro ao carregar unidade ${file.id}:`, e);
+                                    console.warn(`⚠️ Erro ao carregar unidade ${file.id}:`, e);
                                 }
                             }
                         }
-                        
-                        return unidades;
+                    } else {
+                        const errorText = await searchResponse.text();
+                        console.warn('⚠️ Erro ao buscar arquivos unidade_info.json:', searchResponse.status, errorText);
                     }
+                    
+                    // Método 2: Buscar todas as pastas do Drive (incluindo compartilhadas)
+                    console.log('📁 Método 2: Buscando todas as pastas do Drive...');
+                    const foldersResponse = await fetch(
+                        `${DRIVE_API_BASE}/files?q=mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name,shared)`,
+                        {
+                            headers: { 'Authorization': `Bearer ${token}` },
+                        }
+                    );
+                    
+                    if (foldersResponse.ok) {
+                        const foldersData = await foldersResponse.json();
+                        console.log('📁 Total de pastas encontradas:', foldersData.files?.length || 0);
+                        
+                        if (foldersData.files && foldersData.files.length > 0) {
+                            for (const folder of foldersData.files) {
+                                // Pular se já encontramos esta pasta
+                                if (unidadesEncontradas.has(folder.id)) {
+                                    continue;
+                                }
+                                
+                                try {
+                                    // Verificar se a pasta contém unidade_info.json
+                                    console.log(`🔍 Verificando pasta: ${folder.name} (${folder.id})...`);
+                                    const unidadeInfo = await carregarDoDrive(folder.id, 'unidade_info');
+                                    if (unidadeInfo) {
+                                        unidades.push({
+                                            id: unidadeInfo.id || folder.id,
+                                            nome: unidadeInfo.nome || folder.name || 'Unidade',
+                                            driveFolderId: folder.id,
+                                            criadoEm: unidadeInfo.criadoEm,
+                                            adminEmail: unidadeInfo.adminEmail
+                                        });
+                                        unidadesEncontradas.add(folder.id);
+                                        console.log(`✅ Unidade encontrada na pasta: ${unidadeInfo.nome || folder.name} (${folder.id})`);
+                                    }
+                                } catch (e) {
+                                    // Pasta não é uma unidade ou não temos acesso
+                                    // Ignorar silenciosamente
+                                }
+                            }
+                        }
+                    } else {
+                        const errorText = await foldersResponse.text();
+                        console.warn('⚠️ Erro ao buscar pastas:', foldersResponse.status, errorText);
+                    }
+                    
+                    console.log(`✅ Total de unidades encontradas: ${unidades.length}`);
+                    return unidades;
                 } catch (e) {
-                    console.warn('Erro ao buscar unidades:', e);
+                    console.error('❌ Erro ao buscar unidades:', e);
+                    console.error('Detalhes:', e.message, e.stack);
                 }
                 return [];
             };
