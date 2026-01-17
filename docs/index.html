@@ -1043,8 +1043,23 @@
                         }
                     }
                     
-                    // Usuário novo - verificar se já existe no Drive (como admin ou usuário cadastrado)
-                    console.log('🆕 Usuário novo detectado. Verificando se já existe no Drive...');
+                    // Se estiver na aba "Criar Unidade", não buscar convites - apenas criar unidade
+                    if (mode === 'register') {
+                        console.log('📝 Modo "Criar Unidade" - pulando verificação de convites');
+                        // Se não tiver nome da unidade preenchido, mostrar modal
+                        if (!unidadeNome.trim()) {
+                            setPendingGoogleUser(user);
+                            setShowUnidadeModal(true);
+                            setLoading(false);
+                            return;
+                        }
+                        // Criar unidade com nome já preenchido
+                        await criarUnidadeComGoogle(user, unidadeNome.trim());
+                        return;
+                    }
+                    
+                    // Se estiver na aba "Entrar", verificar se já existe no Drive (como admin ou usuário cadastrado)
+                    console.log('🔍 Modo "Entrar" - Verificando se usuário já existe no Drive...');
                     
                     // Primeiro, verificar se o usuário já existe no Drive (pode ser admin ou usuário já cadastrado)
                     try {
