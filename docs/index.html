@@ -1237,8 +1237,39 @@
                         driveFolderId: folderId
                     };
                     
+                    // IMPORTANTE: Salvar unidade_info.json no Drive para que outros usuários encontrem a unidade
+                    console.log('💾 Salvando unidade_info.json no Drive...');
+                    try {
+                        await salvarNoDrive(folderId, 'unidade_info', unidadeData);
+                        console.log('✅ unidade_info.json salvo no Drive com sucesso');
+                    } catch (e) {
+                        console.error('❌ Erro ao salvar unidade_info.json:', e);
+                        // Continuar mesmo se falhar, mas avisar
+                        setError('Aviso: Erro ao salvar informações da unidade no Drive. A unidade foi criada, mas pode não aparecer para outros usuários.');
+                    }
+                    
+                    // Salvar também users_data.json com o admin
+                    console.log('💾 Salvando users_data.json no Drive...');
+                    try {
+                        const adminUserData = {
+                            id: user.uid,
+                            email: user.email,
+                            unidadeId: folderId,
+                            role: 'admin',
+                            status: 'approved',
+                            nome: user.displayName || user.email.split('@')[0],
+                            criadoEm: new Date().toISOString(),
+                            criadoPor: 'admin'
+                        };
+                        await salvarNoDrive(folderId, 'users_data', [adminUserData]);
+                        console.log('✅ users_data.json salvo no Drive com sucesso');
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao salvar users_data.json:', e);
+                    }
+                    
                     localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
                     localStorage.setItem(`user_${user.uid}`, JSON.stringify({
+                        id: user.uid,
                         email: user.email,
                         unidadeId: folderId,
                         role: 'admin',
