@@ -4123,8 +4123,8 @@ Equipe Sacramental LDS`);
                 }
             };
 
-            const pendingUsers = unidadeUsers.filter(u => u.status === 'pending');
-            const approvedUsers = unidadeUsers.filter(u => u.status === 'approved');
+            // Mostrar todos os usuários (exceto removidos)
+            const allActiveUsers = unidadeUsers.filter(u => u.status !== 'removed');
 
             return (
                 <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
@@ -4215,82 +4215,88 @@ Equipe Sacramental LDS`);
                             </div>
                         )}
 
-                        {/* Lista de Usuários Cadastrados */}
+                        {/* Lista de Todos os Usuários Cadastrados */}
                         <div className="mt-6 border-t border-gray-200 pt-4">
                             <h3 className="font-bold text-base text-gray-900 mb-3 flex items-center gap-2">
                                 <Users size={18} className="text-blue-600" />
-                                Usuários Cadastrados ({unidadeUsers.length})
+                                Todos os Usuários Cadastrados ({allActiveUsers.length})
                             </h3>
                             
-                            {pendingUsers.length > 0 && (
-                                <div className="mb-4">
-                                    <h4 className="font-semibold text-sm text-gray-700 mb-2">Aguardando Aprovação ({pendingUsers.length})</h4>
-                                    <div className="space-y-2">
-                                        {pendingUsers.map(u => (
-                                            <div key={u.id} className="flex justify-between items-center p-3 bg-amber-50 border border-amber-200 rounded-xl">
-                                                <div className="flex-1">
-                                                    <p className="font-medium text-gray-900">{u.email}</p>
-                                                    <p className="text-xs text-gray-500">{u.nome || 'Sem nome'}</p>
-                                                </div>
-                                                <button
-                                                    onClick={() => handleApprove(u.id)}
-                                                    className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all ml-2"
-                                                >
-                                                    Aprovar
-                                                </button>
-                                                <button
-                                                    onClick={() => handleRemove(u.id)}
-                                                    className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all ml-1"
-                                                    title="Remover acesso"
-                                                >
-                                                    <Trash2 size={16} />
-                                                </button>
-                                            </div>
-                                        ))}
-                                    </div>
-                                </div>
-                            )}
+                            {allActiveUsers.length > 0 ? (
+                                <div className="space-y-2">
+                                    {allActiveUsers.map(u => {
+                                        const getStatusBadge = () => {
+                                            if (u.role === 'admin') {
+                                                return <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-semibold">Admin</span>;
+                                            }
+                                            if (u.status === 'pending') {
+                                                return <span className="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">Aguardando</span>;
+                                            }
+                                            if (u.status === 'approved') {
+                                                return <span className="text-xs bg-green-100 text-green-800 px-2 py-0.5 rounded-full font-semibold">Ativo</span>;
+                                            }
+                                            return <span className="text-xs bg-gray-100 text-gray-800 px-2 py-0.5 rounded-full font-semibold">{u.status || 'Desconhecido'}</span>;
+                                        };
 
-                            {approvedUsers.length > 0 && (
-                                <div>
-                                    <h4 className="font-semibold text-sm text-gray-700 mb-2">Usuários Aprovados ({approvedUsers.length})</h4>
-                                    <div className="space-y-2">
-                                        {approvedUsers.map(u => (
-                                            <div key={u.id} className="flex justify-between items-center p-3 bg-gray-50 border border-gray-200 rounded-xl hover:bg-gray-100 transition-all">
+                                        const getCardColor = () => {
+                                            if (u.role === 'admin') return 'bg-yellow-50 border-yellow-200';
+                                            if (u.status === 'pending') return 'bg-amber-50 border-amber-200';
+                                            if (u.status === 'approved') return 'bg-green-50 border-green-200';
+                                            return 'bg-gray-50 border-gray-200';
+                                        };
+
+                                        return (
+                                            <div key={u.id} className={`flex justify-between items-center p-3 ${getCardColor()} border rounded-xl hover:shadow-md transition-all`}>
                                                 <div className="flex-1">
-                                                    <p className="font-medium text-gray-900">{u.email}</p>
-                                                    <div className="flex gap-2 items-center mt-1">
-                                                        <span className="text-xs text-gray-500">{u.nome || 'Sem nome'}</span>
-                                                        {u.role === 'admin' && (
-                                                            <span className="text-xs bg-yellow-100 text-yellow-800 px-2 py-0.5 rounded-full font-semibold">Admin</span>
+                                                    <div className="flex items-center gap-2 mb-1">
+                                                        <p className="font-medium text-gray-900">{u.email}</p>
+                                                        {getStatusBadge()}
+                                                    </div>
+                                                    <div className="flex gap-2 items-center flex-wrap">
+                                                        {u.nome && (
+                                                            <span className="text-xs text-gray-600">{u.nome}</span>
                                                         )}
                                                         {u.criadoEm && (
                                                             <span className="text-xs text-gray-400">
-                                                                Criado em {new Date(u.criadoEm).toLocaleDateString('pt-BR')}
+                                                                • Criado em {new Date(u.criadoEm).toLocaleDateString('pt-BR')}
+                                                            </span>
+                                                        )}
+                                                        {u.criadoPor && (
+                                                            <span className="text-xs text-gray-400">
+                                                                • {u.criadoPor === 'admin' ? 'Criado pelo admin' : u.criadoPor === 'invite' ? 'Via convite' : ''}
                                                             </span>
                                                         )}
                                                     </div>
                                                 </div>
-                                                {u.role !== 'admin' && (
-                                                    <button
-                                                        onClick={() => handleRemove(u.id)}
-                                                        className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all ml-2"
-                                                        title="Remover acesso e excluir convite"
-                                                    >
-                                                        <Trash2 size={16} />
-                                                    </button>
-                                                )}
+                                                <div className="flex items-center gap-2 ml-3">
+                                                    {u.status === 'pending' && u.role !== 'admin' && (
+                                                        <button
+                                                            onClick={() => handleApprove(u.id)}
+                                                            className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all"
+                                                            title="Aprovar usuário"
+                                                        >
+                                                            Aprovar
+                                                        </button>
+                                                    )}
+                                                    {u.role !== 'admin' && (
+                                                        <button
+                                                            onClick={() => handleRemove(u.id)}
+                                                            className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all"
+                                                            title="Excluir usuário e remover acesso"
+                                                        >
+                                                            <Trash2 size={16} />
+                                                        </button>
+                                                    )}
+                                                </div>
                                             </div>
-                                        ))}
-                                    </div>
+                                        );
+                                    })}
                                 </div>
-                            )}
-
-                            {unidadeUsers.length === 0 && (
+                            ) : (
                                 <div className="text-center py-8 text-gray-500">
                                     <Users size={32} className="mx-auto mb-2 opacity-50" />
                                     <p className="text-sm">Nenhum usuário cadastrado ainda.</p>
-                                    <p className="text-xs mt-1">Use o formulário acima para criar o primeiro usuário.</p>
+                                    <p className="text-xs mt-1">Use o formulário acima para convidar o primeiro usuário.</p>
                                 </div>
                             )}
                         </div>
