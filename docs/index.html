@@ -992,13 +992,16 @@
 
 
             const handleGoogleLogin = async () => {
-                setLoading(true);
                 setError('');
+                setLoading(true);
+                
                 try {
+                    console.log('🔄 Iniciando login com Google...');
                     const provider = new GoogleAuthProvider();
                     provider.addScope('email');
                     provider.addScope('profile');
                     
+                    console.log('📱 Abrindo popup do Google...');
                     const userCredential = await signInWithPopup(auth, provider);
                     const user = userCredential.user;
                     
@@ -1021,7 +1024,14 @@
                         }
                         
                         // Criar unidade com nome já preenchido
-                        await criarUnidadeComGoogle(user, unidadeNome.trim());
+                        try {
+                            await criarUnidadeComGoogle(user, unidadeNome.trim());
+                        } catch (e) {
+                            console.error('Erro ao criar unidade:', e);
+                            setError('Erro ao criar unidade. Tente novamente.');
+                            await signOut(auth);
+                        }
+                        setLoading(false);
                         return;
                     }
                     
@@ -1399,10 +1409,11 @@
                     
                 } catch (e) {
                     console.error('Erro ao fazer login com Google:', e);
+                    console.error('Detalhes do erro:', e.code, e.message, e.stack);
                     let errorMsg = '';
                     
                     if (e.code === 'auth/popup-closed-by-user') {
-                        errorMsg = 'Login cancelado. Tente novamente.';
+                        errorMsg = 'Login cancelado. Por favor, clique novamente e complete o login com Google.';
                     } else if (e.code === 'auth/popup-blocked') {
                         errorMsg = 'Popup bloqueado. Permita popups para este site e tente novamente.';
                     } else if (e.code === 'auth/operation-not-allowed') {
@@ -1429,7 +1440,7 @@
                             '   - https://arielbrandao25.github.io\n' +
                             '   - http://arielbrandao25.github.io';
                     } else if (e.code === 'auth/network-request-failed') {
-                        errorMsg = 'Erro de conexão. Verifique sua internet.';
+                        errorMsg = 'Erro de conexão. Verifique sua internet e tente novamente.';
                     } else if (e.message && (e.message.includes('OAuth client was not found') || e.message.includes('invalid_client'))) {
                         errorMsg = 'Client ID do OAuth não encontrado ou inválido.\n\n' +
                             'Verifique no Google Cloud Console:\n' +
@@ -1454,27 +1465,33 @@
                     }
                     
                     setError(errorMsg);
+                } finally {
+                    // Sempre desativar loading, mesmo se houver erro não capturado
                     setLoading(false);
+                    console.log('✅ Loading desativado após login');
                 }
             };
 
             const criarUnidadeComGoogle = async (user, nomeUnidade) => {
                 try {
-                    setLoading(true);
+                    console.log('📝 Iniciando criação de unidade:', nomeUnidade);
                     
                     // Solicitar acesso ao Drive
                     try {
                         await solicitarAcessoDrive();
+                        console.log('✅ Acesso ao Drive concedido');
                     } catch (e) {
-                        setError('É necessário conceder acesso ao Google Drive para salvar os dados.');
-                        setLoading(false);
-                        return;
+                        console.error('❌ Erro ao solicitar acesso ao Drive:', e);
+                        setError('É necessário conceder acesso ao Google Drive para salvar os dados. Por favor, permita o acesso quando solicitado.');
+                        throw e; // Re-lançar para ser capturado pelo catch externo
                     }
                     
                     // Criar pasta no Drive do admin
+                    console.log('📁 Criando pasta no Drive...');
                     const folderId = await criarPastaUnidadeDrive(nomeUnidade);
+                    console.log('✅ Pasta criada no Drive:', folderId);
                     
-                    // Salvar informações da unidade no localStorage (já que não usamos mais Firestore)
+                    // Salvar informações da unidade no localStorage
                     const unidadeData = {
                         id: folderId,
                         nome: nomeUnidade,
@@ -1494,13 +1511,29 @@
                         criadoEm: new Date().toISOString()
                     }));
                     
+                    console.log('✅ Dados salvos no localStorage');
+                    console.log('✅ Chamando onAuthSuccess...');
                     onAuthSuccess({ user, unidadeId: folderId, role: 'admin', driveFolderId: folderId });
                 } catch (e) {
-                    console.error('Erro ao criar unidade:', e);
-                    setError('Erro ao criar unidade no Drive. Tente novamente.');
-                    await signOut(auth);
+                    console.error('❌ Erro ao criar unidade:', e);
+                    let errorMessage = 'Erro ao criar unidade. ';
+                    
+                    if (e.message && e.message.includes('Drive')) {
+                        errorMessage += 'Verifique se você concedeu acesso ao Google Drive.';
+                    } else if (e.message && e.message.includes('permission')) {
+                        errorMessage += 'Você precisa conceder permissão para criar pastas no Google Drive.';
+                    } else {
+                        errorMessage += 'Tente novamente. Se o problema persistir, verifique sua conexão com a internet.';
+                    }
+                    
+                    setError(errorMessage);
+                    try {
+                        await signOut(auth);
+                    } catch (signOutError) {
+                        console.warn('Erro ao fazer logout:', signOutError);
+                    }
+                    throw e; // Re-lançar para ser capturado pelo chamador
                 }
-                setLoading(false);
             };
 
             const handleConfirmUnidadeNome = async () => {
@@ -1510,11 +1543,21 @@
                 }
                 
                 if (pendingGoogleUser) {
+                    setLoading(true);
+                    setError('');
                     setUnidadeNome(tempUnidadeNome.trim());
                     setShowUnidadeModal(false);
-                    await criarUnidadeComGoogle(pendingGoogleUser, tempUnidadeNome.trim());
-                    setPendingGoogleUser(null);
-                    setTempUnidadeNome('');
+                    
+                    try {
+                        await criarUnidadeComGoogle(pendingGoogleUser, tempUnidadeNome.trim());
+                        setPendingGoogleUser(null);
+                        setTempUnidadeNome('');
+                    } catch (e) {
+                        console.error('Erro ao criar unidade pelo modal:', e);
+                        // Erro já foi tratado em criarUnidadeComGoogle
+                    } finally {
+                        setLoading(false);
+                    }
                 }
             };
 
