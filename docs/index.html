@@ -3827,19 +3827,51 @@
                 try {
                     const emailLower = email.toLowerCase().trim();
                     
-                    // Verificar se o email já está cadastrado como usuário
-                    const existingUser = unidadeUsers.find(u => u.email?.toLowerCase() === emailLower);
-                    if (existingUser) {
-                        setError('Este email já está cadastrado como usuário nesta unidade.');
-                        setLoading(false);
-                        return;
-                    }
-                    
                     // Verificar se o email já está na lista de convites
                     if (invitedEmails.includes(emailLower)) {
                         setError('Este email já foi convidado.');
                         setLoading(false);
                         return;
+                    }
+                    
+                    // Verificar se o email já está cadastrado como usuário ATIVO (aprovado e não removido)
+                    const existingUser = unidadeUsers.find(u => {
+                        const uEmail = (u.email || '').toLowerCase().trim();
+                        return uEmail === emailLower && 
+                               u.status === 'approved' && 
+                               u.unidadeId === unidadeId &&
+                               u.status !== 'removed';
+                    });
+                    
+                    if (existingUser) {
+                        setError('Este email já está cadastrado como usuário ativo nesta unidade.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    // Verificar também no Drive para ter certeza
+                    if (driveFolderId) {
+                        try {
+                            const usersData = await carregarDoDrive(driveFolderId, 'users_data');
+                            if (usersData && Array.isArray(usersData)) {
+                                const driveUser = usersData.find(u => {
+                                    const uEmail = (u.email || '').toLowerCase().trim();
+                                    return uEmail === emailLower && 
+                                           u.status === 'approved' && 
+                                           u.unidadeId === unidadeId &&
+                                           u.status !== 'removed';
+                                });
+                                
+                                if (driveUser) {
+                                    setError('Este email já está cadastrado como usuário ativo nesta unidade.');
+                                    setLoading(false);
+                                    return;
+                                }
+                            }
+                        } catch (e) {
+                            console.warn("Erro ao verificar usuários no Drive:", e);
+                            // Continuar mesmo se houver erro
+                        }
                     }
                     
                     // Adicionar email à lista de convites
@@ -4151,16 +4183,23 @@ Equipe Sacramental LDS`);
                                 <p className="text-xs text-gray-600 mb-3">Estes emails foram convidados mas ainda não fizeram login:</p>
                                 <div className="space-y-2">
                                     {invitedEmails.map(invitedEmail => {
-                                        const isUser = unidadeUsers.some(u => u.email?.toLowerCase() === invitedEmail.toLowerCase());
+                                        // Verificar se é um usuário ATIVO (aprovado, não removido, mesma unidade)
+                                        const isActiveUser = unidadeUsers.some(u => {
+                                            const uEmail = (u.email || '').toLowerCase().trim();
+                                            return uEmail === invitedEmail.toLowerCase() && 
+                                                   u.status === 'approved' && 
+                                                   u.unidadeId === unidadeId &&
+                                                   u.status !== 'removed';
+                                        });
                                         return (
                                             <div key={invitedEmail} className="flex justify-between items-center p-3 bg-white border border-amber-200 rounded-xl">
                                                 <div className="flex-1">
                                                     <p className="font-medium text-gray-900">{invitedEmail}</p>
                                                     <p className="text-xs text-gray-500">
-                                                        {isUser ? '✅ Já fez login' : '⏳ Aguardando login'}
+                                                        {isActiveUser ? '✅ Já fez login e está ativo' : '⏳ Aguardando login'}
                                                     </p>
                                                 </div>
-                                                {!isUser && (
+                                                {!isActiveUser && (
                                                     <button
                                                         onClick={() => handleRemoveInvite(invitedEmail)}
                                                         className="text-red-600 hover:text-red-700 p-2 rounded-full hover:bg-red-50 transition-all ml-2"
