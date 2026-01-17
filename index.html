@@ -1158,9 +1158,17 @@
                     console.log('🔍 Buscando convites pendentes para:', user.email);
                     let conviteResultado = null;
                     try {
+                        // Tentar buscar convites - isso pode falhar se o Drive não estiver acessível
+                        // mas não deve bloquear o fluxo
                         conviteResultado = await buscarConvitesPorEmail(user.email);
+                        if (conviteResultado) {
+                            console.log('✅ Convite encontrado na busca automática!', conviteResultado);
+                        } else {
+                            console.log('ℹ️ Nenhum convite encontrado na busca automática pelo email');
+                        }
                     } catch (e) {
-                        console.warn('⚠️ Erro ao buscar convites pelo email:', e);
+                        console.warn('⚠️ Erro ao buscar convites pelo email (isso é normal se o Drive não estiver compartilhado ainda):', e);
+                        // Não bloquear o fluxo se houver erro - pode ser que o admin ainda não compartilhou a pasta
                     }
                     
                     if (conviteResultado && conviteResultado.invitation) {
@@ -1256,20 +1264,29 @@
                     
                     // Se não encontrou convite pelo email, verificar se tem token
                     const pendingToken = localStorage.getItem('pending_invite_token');
+                    const tokenDoCampo = inviteToken && inviteToken.trim() ? inviteToken.trim() : null;
+                    const tokenParaVerificar = pendingToken || tokenDoCampo;
                     
-                    if (pendingToken && pendingToken.trim()) {
+                    if (tokenParaVerificar && tokenParaVerificar.trim()) {
                         // Tentar verificar token
-                        console.log('🔑 Token encontrado, verificando...');
-                        await verificarTokenECriarConta(user, pendingToken.trim());
-                        return;
+                        console.log('🔑 Token encontrado, verificando...', tokenParaVerificar.substring(0, 20) + '...');
+                        try {
+                            await verificarTokenECriarConta(user, tokenParaVerificar.trim());
+                            return;
+                        } catch (e) {
+                            console.error('❌ Erro ao verificar token:', e);
+                            // Se o token falhar, continuar para mostrar modal (não bloquear)
+                            setError('Token inválido. Verifique se o token está correto ou tente inserir novamente.');
+                        }
                     }
                     
-                    // Se não encontrou convite nem token, mostrar modal para inserir token
-                    console.log('❌ Nenhum convite encontrado. Solicitando token...');
+                    // Se não encontrou convite nem token válido, mostrar modal para inserir token
+                    console.log('❌ Nenhum convite encontrado automaticamente. Solicitando token manual...');
+                    console.log('💡 Instrução: O usuário deve inserir o token que recebeu por email do admin.');
                     setPendingGoogleUser(user);
                     setShowTokenModal(true);
                     setLoading(false);
-                    await signOut(auth);
+                    // NÃO fazer logout - manter o usuário logado para tentar novamente com o token
                     
                 } catch (e) {
                     console.error('Erro ao fazer login com Google:', e);
