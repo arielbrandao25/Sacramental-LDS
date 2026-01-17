@@ -1087,36 +1087,59 @@
                         const userEmailLower = (user.email || '').toLowerCase().trim();
                         
                         // Primeiro, verificar se o email está na lista de convites
-                        console.log('🔍 Verificando se email está na lista de convites...');
+                        console.log('🔍 Verificando se email está na lista de convites...', userEmailLower);
                         let foundInvite = null;
                         let driveFolderIdFromInvite = null;
                         
-                        // Buscar todos os arquivos invited_emails.json no Drive
+                        // Buscar todos os arquivos invited_emails.json no Drive (incluindo compartilhados)
                         const inviteSearchResponse = await fetch(
-                            `${DRIVE_API_BASE}/files?q=name='invited_emails.json' and trashed=false&fields=files(id,parents)`,
+                            `${DRIVE_API_BASE}/files?q=name='invited_emails.json' and trashed=false&fields=files(id,parents,name)`,
                             {
                                 headers: { 'Authorization': `Bearer ${token}` },
                             }
                         );
                         
+                        console.log('📋 Resposta da busca de convites:', inviteSearchResponse.status);
+                        
                         if (inviteSearchResponse.ok) {
                             const inviteSearchData = await inviteSearchResponse.json();
+                            console.log('📋 Arquivos invited_emails.json encontrados:', inviteSearchData.files?.length || 0);
+                            
                             if (inviteSearchData.files && inviteSearchData.files.length > 0) {
                                 for (const file of inviteSearchData.files) {
                                     try {
                                         const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
                                         if (folderId) {
+                                            console.log(`🔍 Verificando pasta ${folderId}...`);
                                             const invitedEmails = await carregarDoDrive(folderId, 'invited_emails');
+                                            console.log(`📧 Emails na lista de convites desta pasta:`, invitedEmails);
+                                            
                                             if (invitedEmails && Array.isArray(invitedEmails)) {
-                                                const isInvited = invitedEmails.some(e => e.toLowerCase().trim() === userEmailLower);
+                                                const isInvited = invitedEmails.some(e => {
+                                                    const eLower = (e || '').toLowerCase().trim();
+                                                    const match = eLower === userEmailLower;
+                                                    if (match) {
+                                                        console.log(`✅ Match encontrado! Email na lista: "${e}", Email do usuário: "${userEmailLower}"`);
+                                                    }
+                                                    return match;
+                                                });
+                                                
                                                 if (isInvited) {
                                                     console.log('✅ Email encontrado na lista de convites!', folderId);
                                                     foundInvite = true;
                                                     driveFolderIdFromInvite = folderId;
                                                     
                                                     // Buscar dados da unidade
-                                                    const unidadeData = await carregarDoDrive(folderId, 'unidade_info');
-                                                    const unidadeId = unidadeData?.id || folderId;
+                                                    let unidadeData = null;
+                                                    let unidadeId = folderId;
+                                                    try {
+                                                        unidadeData = await carregarDoDrive(folderId, 'unidade_info');
+                                                        if (unidadeData?.id) {
+                                                            unidadeId = unidadeData.id;
+                                                        }
+                                                    } catch (e) {
+                                                        console.warn('⚠️ Erro ao buscar dados da unidade, usando folderId:', e);
+                                                    }
                                                     
                                                     // Criar dados do usuário automaticamente
                                                     const newUserData = {
@@ -1177,12 +1200,124 @@
                                         }
                                     } catch (e) {
                                         console.warn(`⚠️ Erro ao verificar convite no arquivo ${file.id}:`, e);
+                                        console.error('Detalhes do erro:', e.message, e.stack);
                                     }
                                 }
+                            } else {
+                                console.log('⚠️ Nenhum arquivo invited_emails.json encontrado no Drive');
+                            }
+                        } else {
+                            const errorText = await inviteSearchResponse.text();
+                            console.error('❌ Erro ao buscar convites:', inviteSearchResponse.status, errorText);
+                        }
+                        
+                        // Se não encontrou convite, tentar buscar diretamente em pastas compartilhadas
+                        if (!foundInvite) {
+                            console.log('🔍 Tentando buscar em pastas compartilhadas...');
+                            
+                            try {
+                                const sharedFoldersResponse = await fetch(
+                                    `${DRIVE_API_BASE}/files?q=mimeType='application/vnd.google-apps.folder' and sharedWithMe=true and trashed=false&fields=files(id,name)`,
+                                    {
+                                        headers: { 'Authorization': `Bearer ${token}` },
+                                    }
+                                );
+                                
+                                if (sharedFoldersResponse.ok) {
+                                    const sharedData = await sharedFoldersResponse.json();
+                                    console.log('📁 Pastas compartilhadas encontradas:', sharedData.files?.length || 0);
+                                    
+                                    if (sharedData.files && sharedData.files.length > 0) {
+                                        for (const folder of sharedData.files) {
+                                            try {
+                                                const invitedEmails = await carregarDoDrive(folder.id, 'invited_emails');
+                                                if (invitedEmails && Array.isArray(invitedEmails)) {
+                                                    console.log(`📧 Verificando pasta compartilhada ${folder.name} (${folder.id}):`, invitedEmails);
+                                                    const isInvited = invitedEmails.some(e => {
+                                                        const eLower = (e || '').toLowerCase().trim();
+                                                        return eLower === userEmailLower;
+                                                    });
+                                                    
+                                                    if (isInvited) {
+                                                        console.log('✅ Email encontrado em pasta compartilhada!', folder.id);
+                                                        foundInvite = true;
+                                                        driveFolderIdFromInvite = folder.id;
+                                                        
+                                                        // Buscar dados da unidade
+                                                        let unidadeData = null;
+                                                        let unidadeId = folder.id;
+                                                        try {
+                                                            unidadeData = await carregarDoDrive(folder.id, 'unidade_info');
+                                                            if (unidadeData?.id) {
+                                                                unidadeId = unidadeData.id;
+                                                            }
+                                                        } catch (e) {
+                                                            console.warn('⚠️ Erro ao buscar dados da unidade:', e);
+                                                        }
+                                                        
+                                                        // Criar dados do usuário automaticamente
+                                                        const newUserData = {
+                                                            id: user.uid,
+                                                            email: user.email,
+                                                            unidadeId: unidadeId,
+                                                            role: 'user',
+                                                            status: 'approved',
+                                                            nome: user.displayName || user.email.split('@')[0],
+                                                            criadoEm: new Date().toISOString(),
+                                                            criadoPor: 'invite'
+                                                        };
+                                                        
+                                                        localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
+                                                        
+                                                        let usersData = [];
+                                                        try {
+                                                            const existingUsersData = await carregarDoDrive(folder.id, 'users_data');
+                                                            if (existingUsersData && Array.isArray(existingUsersData)) {
+                                                                usersData = existingUsersData;
+                                                            }
+                                                        } catch (e) {
+                                                            // Arquivo não existe, criar novo
+                                                        }
+                                                        
+                                                        const existingIndex = usersData.findIndex(u => u.id === user.uid || u.email?.toLowerCase() === userEmailLower);
+                                                        if (existingIndex >= 0) {
+                                                            usersData[existingIndex] = { ...usersData[existingIndex], ...newUserData, id: user.uid };
+                                                        } else {
+                                                            usersData.push(newUserData);
+                                                        }
+                                                        
+                                                        await salvarNoDrive(folder.id, 'users_data', usersData);
+                                                        console.log('💾 Usuário criado automaticamente no Drive');
+                                                        
+                                                        localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
+                                                            id: unidadeId,
+                                                            driveFolderId: folder.id,
+                                                            nome: unidadeData?.nome || folder.name || 'Unidade'
+                                                        }));
+                                                        
+                                                        onAuthSuccess({ 
+                                                            user, 
+                                                            unidadeId: unidadeId, 
+                                                            role: 'user',
+                                                            driveFolderId: folder.id,
+                                                            status: 'approved'
+                                                        });
+                                                        setLoading(false);
+                                                        return;
+                                                    }
+                                                }
+                                            } catch (e) {
+                                                console.warn(`⚠️ Erro ao verificar pasta compartilhada ${folder.id}:`, e);
+                                            }
+                                        }
+                                    }
+                                }
+                            } catch (e) {
+                                console.warn('⚠️ Erro ao buscar pastas compartilhadas:', e);
                             }
                         }
                         
-                        // Se não encontrou convite, verificar se já existe como usuário no Drive
+                        // Se ainda não encontrou convite, verificar se já existe como usuário no Drive
                         if (!foundInvite) {
                             console.log('🔍 Email não está na lista de convites, verificando se já é usuário...');
                             const searchResponse = await fetch(
@@ -3909,18 +4044,23 @@
                                     body: JSON.stringify({
                                         role: 'writer', // Permissão de escrita para editar dados
                                         type: 'user',
-                                        emailAddress: email
+                                        emailAddress: email,
+                                        sendNotificationEmail: false // Não enviar email automático do Google
                                     })
                                 }
                             );
                             
                             if (shareResponse.ok) {
-                                console.log('✅ Pasta compartilhada com sucesso com', email);
+                                const shareData = await shareResponse.json();
+                                console.log('✅ Pasta compartilhada com sucesso com', email, 'Permission ID:', shareData.id);
                             } else {
-                                console.warn('⚠️ Erro ao compartilhar pasta:', shareResponse.status);
+                                const errorText = await shareResponse.text();
+                                console.warn('⚠️ Erro ao compartilhar pasta:', shareResponse.status, errorText);
+                                // Continuar mesmo se o compartilhamento falhar - o usuário pode ter acesso via convite
                             }
                         } catch (e) {
                             console.warn('⚠️ Erro ao compartilhar pasta:', e);
+                            // Continuar mesmo se o compartilhamento falhar
                         }
                     }
                     
