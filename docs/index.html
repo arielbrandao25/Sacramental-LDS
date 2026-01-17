@@ -134,12 +134,14 @@
             appId: "1:911518938542:web:7684cc7a26f28ab146843f"
         };
 
-        // Inicialização do Firebase (apenas para Auth)
-        let app, auth;
+        // Inicialização do Firebase (Auth + Firestore)
+        let app, auth, db;
         try {
             if (firebaseConfig.apiKey) {
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
+                db = getFirestore(app);
+                console.log('✅ Firebase inicializado (Auth + Firestore)');
             } else {
                 throw new Error("Chave de API do Firebase não encontrada.");
             }
@@ -148,7 +150,156 @@
             throw e;
         }
 
-        // --- FUNÇÕES GOOGLE DRIVE (Usando token do Firebase Auth) ---
+        // --- FUNÇÕES FIRESTORE (Para Unidades e Usuários) ---
+        
+        // Salvar unidade no Firestore
+        const salvarUnidadeFirestore = async (unidadeData) => {
+            try {
+                const unidadeRef = doc(db, 'unidades', unidadeData.id);
+                await setDoc(unidadeRef, {
+                    ...unidadeData,
+                    atualizadoEm: serverTimestamp()
+                }, { merge: true });
+                console.log('✅ Unidade salva no Firestore:', unidadeData.id);
+                return unidadeData.id;
+            } catch (e) {
+                console.error('❌ Erro ao salvar unidade no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Carregar unidade do Firestore
+        const carregarUnidadeFirestore = async (unidadeId) => {
+            try {
+                const unidadeRef = doc(db, 'unidades', unidadeId);
+                const unidadeSnap = await getDoc(unidadeRef);
+                if (unidadeSnap.exists()) {
+                    return { id: unidadeSnap.id, ...unidadeSnap.data() };
+                }
+                return null;
+            } catch (e) {
+                console.error('❌ Erro ao carregar unidade do Firestore:', e);
+                return null;
+            }
+        };
+        
+        // Buscar todas as unidades do Firestore
+        const buscarTodasUnidadesFirestore = async () => {
+            try {
+                const unidadesRef = collection(db, 'unidades');
+                const unidadesSnap = await getDocs(unidadesRef);
+                const unidades = [];
+                unidadesSnap.forEach((doc) => {
+                    unidades.push({ id: doc.id, ...doc.data() });
+                });
+                console.log(`✅ ${unidades.length} unidades encontradas no Firestore`);
+                return unidades;
+            } catch (e) {
+                console.error('❌ Erro ao buscar unidades do Firestore:', e);
+                return [];
+            }
+        };
+        
+        // Salvar usuário no Firestore
+        const salvarUsuarioFirestore = async (userId, userData) => {
+            try {
+                const userRef = doc(db, 'usuarios', userId);
+                await setDoc(userRef, {
+                    ...userData,
+                    atualizadoEm: serverTimestamp()
+                }, { merge: true });
+                console.log('✅ Usuário salvo no Firestore:', userId);
+            } catch (e) {
+                console.error('❌ Erro ao salvar usuário no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Carregar usuário do Firestore
+        const carregarUsuarioFirestore = async (userId) => {
+            try {
+                const userRef = doc(db, 'usuarios', userId);
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists()) {
+                    return { id: userSnap.id, ...userSnap.data() };
+                }
+                return null;
+            } catch (e) {
+                console.error('❌ Erro ao carregar usuário do Firestore:', e);
+                return null;
+            }
+        };
+        
+        // Buscar usuários de uma unidade
+        const buscarUsuariosUnidadeFirestore = async (unidadeId) => {
+            try {
+                const usuariosRef = collection(db, 'usuarios');
+                const q = query(usuariosRef, where('unidadeId', '==', unidadeId));
+                const usuariosSnap = await getDocs(q);
+                const usuarios = [];
+                usuariosSnap.forEach((doc) => {
+                    usuarios.push({ id: doc.id, ...doc.data() });
+                });
+                return usuarios;
+            } catch (e) {
+                console.error('❌ Erro ao buscar usuários da unidade:', e);
+                return [];
+            }
+        };
+        
+        // Salvar solicitação pendente no Firestore
+        const salvarSolicitacaoFirestore = async (solicitacao) => {
+            try {
+                const solicitacoesRef = collection(db, 'solicitacoes');
+                await addDoc(solicitacoesRef, {
+                    ...solicitacao,
+                    status: 'pending',
+                    criadoEm: serverTimestamp()
+                });
+                console.log('✅ Solicitação salva no Firestore');
+            } catch (e) {
+                console.error('❌ Erro ao salvar solicitação no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Buscar solicitações pendentes de uma unidade
+        const buscarSolicitacoesPendentesFirestore = async (unidadeId) => {
+            try {
+                const solicitacoesRef = collection(db, 'solicitacoes');
+                const q = query(
+                    solicitacoesRef, 
+                    where('unidadeId', '==', unidadeId),
+                    where('status', '==', 'pending')
+                );
+                const solicitacoesSnap = await getDocs(q);
+                const solicitacoes = [];
+                solicitacoesSnap.forEach((doc) => {
+                    solicitacoes.push({ id: doc.id, ...doc.data() });
+                });
+                return solicitacoes;
+            } catch (e) {
+                console.error('❌ Erro ao buscar solicitações:', e);
+                return [];
+            }
+        };
+        
+        // Atualizar status de solicitação
+        const atualizarSolicitacaoFirestore = async (solicitacaoId, status) => {
+            try {
+                const solicitacaoRef = doc(db, 'solicitacoes', solicitacaoId);
+                await updateDoc(solicitacaoRef, {
+                    status: status,
+                    atualizadoEm: serverTimestamp()
+                });
+                console.log('✅ Solicitação atualizada no Firestore');
+            } catch (e) {
+                console.error('❌ Erro ao atualizar solicitação:', e);
+                throw e;
+            }
+        };
+
+        // --- FUNÇÕES GOOGLE DRIVE (Apenas para dados dos membros) ---
         const DRIVE_API_BASE = 'https://www.googleapis.com/drive/v3';
         const DRIVE_UPLOAD_BASE = 'https://www.googleapis.com/upload/drive/v3';
 
@@ -810,134 +961,33 @@
                 }
             };
 
-            // Função para buscar unidades disponíveis no Drive
+            // Função para buscar unidades disponíveis no Firestore
             const buscarUnidadesDisponiveis = async () => {
                 try {
-                    console.log('🔍 Buscando unidades disponíveis...');
-                    await solicitarAcessoDrive();
-                    const token = await getGoogleAccessToken();
-                    
-                    const unidades = [];
-                    const unidadesEncontradas = new Set(); // Para evitar duplicatas
-                    
-                    // Método 1: Buscar arquivos unidade_info.json diretamente
-                    console.log('📋 Método 1: Buscando arquivos unidade_info.json...');
-                    const searchResponse = await fetch(
-                        `${DRIVE_API_BASE}/files?q=name='unidade_info.json' and trashed=false&fields=files(id,parents,name)`,
-                        {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                        }
-                    );
-                    
-                    if (searchResponse.ok) {
-                        const searchData = await searchResponse.json();
-                        console.log('📋 Arquivos unidade_info.json encontrados:', searchData.files?.length || 0);
-                        
-                        if (searchData.files && searchData.files.length > 0) {
-                            for (const file of searchData.files) {
-                                try {
-                                    const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                    if (folderId && !unidadesEncontradas.has(folderId)) {
-                                        console.log(`📁 Carregando unidade da pasta ${folderId}...`);
-                                        const unidadeInfo = await carregarDoDrive(folderId, 'unidade_info');
-                                        if (unidadeInfo) {
-                                            unidades.push({
-                                                id: unidadeInfo.id || folderId,
-                                                nome: unidadeInfo.nome || 'Unidade',
-                                                driveFolderId: folderId,
-                                                criadoEm: unidadeInfo.criadoEm,
-                                                adminEmail: unidadeInfo.adminEmail
-                                            });
-                                            unidadesEncontradas.add(folderId);
-                                            console.log(`✅ Unidade encontrada: ${unidadeInfo.nome} (${folderId})`);
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.warn(`⚠️ Erro ao carregar unidade ${file.id}:`, e);
-                                }
-                            }
-                        }
-                    } else {
-                        const errorText = await searchResponse.text();
-                        console.warn('⚠️ Erro ao buscar arquivos unidade_info.json:', searchResponse.status, errorText);
-                    }
-                    
-                    // Método 2: Buscar todas as pastas do Drive (incluindo compartilhadas)
-                    console.log('📁 Método 2: Buscando todas as pastas do Drive...');
-                    const foldersResponse = await fetch(
-                        `${DRIVE_API_BASE}/files?q=mimeType='application/vnd.google-apps.folder' and trashed=false&fields=files(id,name,shared)`,
-                        {
-                            headers: { 'Authorization': `Bearer ${token}` },
-                        }
-                    );
-                    
-                    if (foldersResponse.ok) {
-                        const foldersData = await foldersResponse.json();
-                        console.log('📁 Total de pastas encontradas:', foldersData.files?.length || 0);
-                        
-                        if (foldersData.files && foldersData.files.length > 0) {
-                            for (const folder of foldersData.files) {
-                                // Pular se já encontramos esta pasta
-                                if (unidadesEncontradas.has(folder.id)) {
-                                    continue;
-                                }
-                                
-                                try {
-                                    // Verificar se a pasta contém unidade_info.json
-                                    console.log(`🔍 Verificando pasta: ${folder.name} (${folder.id})...`);
-                                    const unidadeInfo = await carregarDoDrive(folder.id, 'unidade_info');
-                                    if (unidadeInfo) {
-                                        unidades.push({
-                                            id: unidadeInfo.id || folder.id,
-                                            nome: unidadeInfo.nome || folder.name || 'Unidade',
-                                            driveFolderId: folder.id,
-                                            criadoEm: unidadeInfo.criadoEm,
-                                            adminEmail: unidadeInfo.adminEmail
-                                        });
-                                        unidadesEncontradas.add(folder.id);
-                                        console.log(`✅ Unidade encontrada na pasta: ${unidadeInfo.nome || folder.name} (${folder.id})`);
-                                    }
-                                } catch (e) {
-                                    // Pasta não é uma unidade ou não temos acesso
-                                    // Ignorar silenciosamente
-                                }
-                            }
-                        }
-                    } else {
-                        const errorText = await foldersResponse.text();
-                        console.warn('⚠️ Erro ao buscar pastas:', foldersResponse.status, errorText);
-                    }
-                    
-                    console.log(`✅ Total de unidades encontradas: ${unidades.length}`);
-                    return unidades;
+                    console.log('🔍 Buscando unidades disponíveis no Firestore...');
+                    const unidades = await buscarTodasUnidadesFirestore();
+                    console.log(`✅ ${unidades.length} unidades encontradas`);
+                    return unidades.map(u => ({
+                        id: u.id,
+                        nome: u.nome || 'Unidade',
+                        driveFolderId: u.driveFolderId || u.id, // Manter compatibilidade
+                        criadoEm: u.criadoEm,
+                        adminEmail: u.adminEmail
+                    }));
                 } catch (e) {
                     console.error('❌ Erro ao buscar unidades:', e);
-                    console.error('Detalhes:', e.message, e.stack);
+                    return [];
                 }
-                return [];
             };
 
-            // Função para solicitar acesso à unidade
+            // Função para solicitar acesso à unidade (usando Firestore)
             const solicitarAcessoUnidade = async (unidade) => {
                 setLoading(true);
                 setError('');
                 try {
-                    await solicitarAcessoDrive();
-                    const token = await getGoogleAccessToken();
-                    
-                    // Carregar ou criar arquivo de solicitações pendentes
-                    let pendingRequests = [];
-                    try {
-                        const existing = await carregarDoDrive(unidade.driveFolderId, 'pending_requests');
-                        if (existing && Array.isArray(existing)) {
-                            pendingRequests = existing;
-                        }
-                    } catch (e) {
-                        // Arquivo não existe, criar novo
-                    }
-                    
                     // Verificar se já existe solicitação pendente
-                    const existingRequest = pendingRequests.find(r => 
+                    const solicitacoesExistentes = await buscarSolicitacoesPendentesFirestore(unidade.id);
+                    const existingRequest = solicitacoesExistentes.find(r => 
                         r.userId === loggedInUser.uid || r.email?.toLowerCase() === loggedInUser.email?.toLowerCase()
                     );
                     
@@ -947,21 +997,30 @@
                         return;
                     }
                     
-                    // Adicionar nova solicitação
+                    // Criar nova solicitação no Firestore
                     const newRequest = {
                         userId: loggedInUser.uid,
                         email: loggedInUser.email,
                         nome: loggedInUser.displayName || loggedInUser.email.split('@')[0],
                         unidadeId: unidade.id,
                         unidadeNome: unidade.nome,
-                        solicitadoEm: new Date().toISOString(),
                         status: 'pending'
                     };
                     
-                    pendingRequests.push(newRequest);
-                    await salvarNoDrive(unidade.driveFolderId, 'pending_requests', pendingRequests);
+                    await salvarSolicitacaoFirestore(newRequest);
                     
-                    // Salvar dados do usuário com status pending
+                    // Salvar dados do usuário no Firestore com status pending
+                    await salvarUsuarioFirestore(loggedInUser.uid, {
+                        id: loggedInUser.uid,
+                        email: loggedInUser.email,
+                        unidadeId: unidade.id,
+                        role: 'user',
+                        status: 'pending',
+                        nome: loggedInUser.displayName || loggedInUser.email.split('@')[0],
+                        criadoEm: new Date().toISOString()
+                    });
+                    
+                    // Também salvar no localStorage para compatibilidade
                     localStorage.setItem(`user_${loggedInUser.uid}`, JSON.stringify({
                         id: loggedInUser.uid,
                         email: loggedInUser.email,
@@ -988,34 +1047,50 @@
                 }
             };
 
-            // Função para processar login/cadastro bem-sucedido
+            // Função para processar login/cadastro bem-sucedido (usando Firestore)
             const processarLoginSucesso = async (user) => {
                 setLoading(true);
                 try {
-                    // Verificar se o usuário já tem uma unidade associada
-                    const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                    if (userDataStr) {
-                        const userData = JSON.parse(userDataStr);
-                        if (userData.unidadeId && userData.status === 'approved') {
-                            // Usuário já tem unidade aprovada, fazer login direto
-                            const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
-                            const unidadeData = unidadeDataStr ? JSON.parse(unidadeDataStr) : null;
-                            
-                            try {
-                                await solicitarAcessoDrive();
-                            } catch (e) {
-                                console.warn("Acesso ao Drive não disponível");
+                    // Buscar dados do usuário no Firestore
+                    let userData = await carregarUsuarioFirestore(user.uid);
+                    
+                    // Se não encontrou no Firestore, verificar localStorage (migração)
+                    if (!userData) {
+                        const userDataStr = localStorage.getItem(`user_${user.uid}`);
+                        if (userDataStr) {
+                            userData = JSON.parse(userDataStr);
+                            // Migrar para Firestore
+                            if (userData) {
+                                await salvarUsuarioFirestore(user.uid, userData);
                             }
-                            
-                            onAuthSuccess({ 
-                                user, 
-                                unidadeId: userData.unidadeId, 
-                                role: userData.role,
-                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId
-                            });
-                            setLoading(false);
-                            return;
                         }
+                    }
+                    
+                    if (userData && userData.unidadeId && userData.status === 'approved') {
+                        // Usuário já tem unidade aprovada, fazer login direto
+                        const unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
+                        
+                        // Solicitar acesso ao Drive apenas para dados dos membros
+                        try {
+                            await solicitarAcessoDrive();
+                        } catch (e) {
+                            console.warn("Acesso ao Drive não disponível (não crítico para login)");
+                        }
+                        
+                        // Salvar no localStorage para compatibilidade
+                        localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                        if (unidadeData) {
+                            localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                        }
+                        
+                        onAuthSuccess({ 
+                            user, 
+                            unidadeId: userData.unidadeId, 
+                            role: userData.role,
+                            driveFolderId: unidadeData?.driveFolderId || userData.unidadeId
+                        });
+                        setLoading(false);
+                        return;
                     }
                     
                     // Se não tem unidade, buscar unidades disponíveis e mostrar tela de seleção
@@ -1040,13 +1115,18 @@
                     
                     console.log('✅ Cadastro realizado. UID:', user.uid, 'Email:', user.email);
                     
-                    // Salvar dados básicos do usuário
-                    localStorage.setItem(`user_${user.uid}`, JSON.stringify({
+                    // Salvar dados básicos do usuário no Firestore
+                    const userData = {
                         id: user.uid,
                         email: user.email,
                         nome: user.email.split('@')[0],
                         criadoEm: new Date().toISOString()
-                    }));
+                    };
+                    
+                    await salvarUsuarioFirestore(user.uid, userData);
+                    
+                    // Também salvar no localStorage para compatibilidade
+                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
                     
                     // Processar login (buscar unidades)
                     await processarLoginSucesso(user);
@@ -1212,75 +1292,58 @@
                 try {
                     console.log('📝 Iniciando criação de unidade:', nomeUnidade);
                     
-                    // Solicitar acesso ao Drive
+                    // Criar ID único para a unidade
+                    const unidadeId = `unidade_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+                    
+                    // Criar pasta no Drive para dados dos membros (opcional, pode falhar sem bloquear)
+                    let folderId = null;
                     try {
                         await solicitarAcessoDrive();
-                        console.log('✅ Acesso ao Drive concedido');
+                        console.log('📁 Criando pasta no Drive para dados dos membros...');
+                        folderId = await criarPastaUnidadeDrive(nomeUnidade);
+                        console.log('✅ Pasta criada no Drive:', folderId);
                     } catch (e) {
-                        console.error('❌ Erro ao solicitar acesso ao Drive:', e);
-                        setError('É necessário conceder acesso ao Google Drive para salvar os dados. Por favor, permita o acesso quando solicitado.');
-                        throw e; // Re-lançar para ser capturado pelo catch externo
+                        console.warn('⚠️ Erro ao criar pasta no Drive (não crítico):', e);
+                        // Continuar mesmo se falhar - Drive é apenas para dados dos membros
                     }
                     
-                    // Criar pasta no Drive do admin
-                    console.log('📁 Criando pasta no Drive...');
-                    const folderId = await criarPastaUnidadeDrive(nomeUnidade);
-                    console.log('✅ Pasta criada no Drive:', folderId);
-                    
-                    // Salvar informações da unidade no localStorage
+                    // Salvar informações da unidade no Firestore
                     const unidadeData = {
-                        id: folderId,
+                        id: unidadeId,
                         nome: nomeUnidade,
                         criadoPor: user.uid,
                         criadoEm: new Date().toISOString(),
                         adminEmail: user.email,
-                        driveFolderId: folderId
+                        driveFolderId: folderId || unidadeId // Usar unidadeId como fallback
                     };
                     
-                    // IMPORTANTE: Salvar unidade_info.json no Drive para que outros usuários encontrem a unidade
-                    console.log('💾 Salvando unidade_info.json no Drive...');
-                    try {
-                        await salvarNoDrive(folderId, 'unidade_info', unidadeData);
-                        console.log('✅ unidade_info.json salvo no Drive com sucesso');
-                    } catch (e) {
-                        console.error('❌ Erro ao salvar unidade_info.json:', e);
-                        // Continuar mesmo se falhar, mas avisar
-                        setError('Aviso: Erro ao salvar informações da unidade no Drive. A unidade foi criada, mas pode não aparecer para outros usuários.');
-                    }
+                    console.log('💾 Salvando unidade no Firestore...');
+                    await salvarUnidadeFirestore(unidadeData);
+                    console.log('✅ Unidade salva no Firestore');
                     
-                    // Salvar também users_data.json com o admin
-                    console.log('💾 Salvando users_data.json no Drive...');
-                    try {
-                        const adminUserData = {
-                            id: user.uid,
-                            email: user.email,
-                            unidadeId: folderId,
-                            role: 'admin',
-                            status: 'approved',
-                            nome: user.displayName || user.email.split('@')[0],
-                            criadoEm: new Date().toISOString(),
-                            criadoPor: 'admin'
-                        };
-                        await salvarNoDrive(folderId, 'users_data', [adminUserData]);
-                        console.log('✅ users_data.json salvo no Drive com sucesso');
-                    } catch (e) {
-                        console.warn('⚠️ Erro ao salvar users_data.json:', e);
-                    }
-                    
-                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
-                    localStorage.setItem(`user_${user.uid}`, JSON.stringify({
+                    // Salvar dados do admin no Firestore
+                    const adminUserData = {
                         id: user.uid,
                         email: user.email,
-                        unidadeId: folderId,
+                        unidadeId: unidadeId,
                         role: 'admin',
                         status: 'approved',
                         nome: user.displayName || user.email.split('@')[0],
-                        criadoEm: new Date().toISOString()
-                    }));
+                        criadoEm: new Date().toISOString(),
+                        criadoPor: 'admin'
+                    };
+                    
+                    console.log('💾 Salvando dados do admin no Firestore...');
+                    await salvarUsuarioFirestore(user.uid, adminUserData);
+                    console.log('✅ Dados do admin salvos no Firestore');
+                    
+                    // Salvar no localStorage para compatibilidade
+                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(adminUserData));
                     
                     console.log('✅ Dados salvos no localStorage');
                     console.log('✅ Chamando onAuthSuccess...');
-                    onAuthSuccess({ user, unidadeId: folderId, role: 'admin', driveFolderId: folderId });
+                    onAuthSuccess({ user, unidadeId: unidadeId, role: 'admin', driveFolderId: folderId || unidadeId });
                 } catch (e) {
                     console.error('❌ Erro ao criar unidade:', e);
                     let errorMessage = 'Erro ao criar unidade. ';
@@ -1639,43 +1702,62 @@
                         return;
                     }
                     
-                    // Buscar dados do usuário do localStorage (Drive)
+                    // Buscar dados do usuário do Firestore
                     try {
-                        const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                        if (userDataStr) {
-                            const userData = JSON.parse(userDataStr);
-                            if (userData.unidadeId) {
-                                // Buscar info da unidade do localStorage
+                        let userData = await carregarUsuarioFirestore(user.uid);
+                        
+                        // Se não encontrou no Firestore, verificar localStorage (migração)
+                        if (!userData) {
+                            const userDataStr = localStorage.getItem(`user_${user.uid}`);
+                            if (userDataStr) {
+                                userData = JSON.parse(userDataStr);
+                                // Migrar para Firestore
+                                if (userData) {
+                                    await salvarUsuarioFirestore(user.uid, userData);
+                                }
+                            }
+                        }
+                        
+                        if (userData && userData.unidadeId) {
+                            // Buscar info da unidade do Firestore
+                            let unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
+                            
+                            // Se não encontrou no Firestore, verificar localStorage (migração)
+                            if (!unidadeData) {
                                 const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
                                 if (unidadeDataStr) {
-                                    const unidadeData = JSON.parse(unidadeDataStr);
-                                    setUnidadeInfo(unidadeData);
-                                    
-                                    // Solicitar acesso ao Drive se necessário
-                                    try {
-                                        await solicitarAcessoDrive();
-                                    } catch (e) {
-                                        console.warn("Acesso ao Drive não disponível, usando dados locais");
+                                    unidadeData = JSON.parse(unidadeDataStr);
+                                    // Migrar para Firestore
+                                    if (unidadeData) {
+                                        await salvarUnidadeFirestore(unidadeData);
                                     }
-                                    
-                                    setAuthData({ 
-                                        user, 
-                                        unidadeId: userData.unidadeId, 
-                                        role: userData.role,
-                                        driveFolderId: unidadeData.driveFolderId || userData.unidadeId,
-                                        status: userData.status || 'approved' // Incluir status
-                                    });
-                                } else {
-                                    setAuthData({ 
-                                        user, 
-                                        unidadeId: userData.unidadeId, 
-                                        role: userData.role,
-                                        status: userData.status || 'approved'
-                                    });
                                 }
-                            } else {
-                                setAuthData(null);
                             }
+                            
+                            if (unidadeData) {
+                                setUnidadeInfo(unidadeData);
+                            }
+                            
+                            // Solicitar acesso ao Drive apenas para dados dos membros (não crítico)
+                            try {
+                                await solicitarAcessoDrive();
+                            } catch (e) {
+                                console.warn("Acesso ao Drive não disponível (não crítico para login)");
+                            }
+                            
+                            // Salvar no localStorage para compatibilidade
+                            localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                            if (unidadeData) {
+                                localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                            }
+                            
+                            setAuthData({ 
+                                user, 
+                                unidadeId: userData.unidadeId, 
+                                role: userData.role,
+                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
+                                status: userData.status || 'approved'
+                            });
                         } else {
                             setAuthData(null);
                         }
@@ -1695,52 +1777,49 @@
                 if (!authData?.unidadeId) return;
                 
                 const loadUsers = async () => {
-                    // Buscar info da unidade do localStorage
-                    const unidadeDataStr = localStorage.getItem(`unidade_${authData.user.uid}`);
-                    if (unidadeDataStr) {
-                        const unidadeData = JSON.parse(unidadeDataStr);
-                        setUnidadeInfo(unidadeData);
-                    }
-                    
-                    // Buscar usuários da unidade (localStorage primeiro)
-                    const allUsers = [];
-                    for (let i = 0; i < localStorage.length; i++) {
-                        const key = localStorage.key(i);
-                        if (key && key.startsWith('user_')) {
-                            try {
-                                const userData = JSON.parse(localStorage.getItem(key));
-                                if (userData.unidadeId === authData.unidadeId) {
-                                    allUsers.push({ id: key.replace('user_', ''), ...userData });
-                                }
-                            } catch (e) {
-                                // Ignorar erros de parsing
+                    // Buscar info da unidade do Firestore
+                    try {
+                        const unidadeData = await carregarUnidadeFirestore(authData.unidadeId);
+                        if (unidadeData) {
+                            setUnidadeInfo(unidadeData);
+                            // Salvar no localStorage para compatibilidade
+                            localStorage.setItem(`unidade_${authData.user.uid}`, JSON.stringify(unidadeData));
+                        } else {
+                            // Fallback: buscar do localStorage
+                            const unidadeDataStr = localStorage.getItem(`unidade_${authData.user.uid}`);
+                            if (unidadeDataStr) {
+                                const unidadeData = JSON.parse(unidadeDataStr);
+                                setUnidadeInfo(unidadeData);
                             }
                         }
+                    } catch (e) {
+                        console.warn("Erro ao carregar unidade do Firestore:", e);
                     }
                     
-                    // Buscar também do Drive (se disponível)
-                    if (authData.driveFolderId) {
-                        try {
-                            const usersData = await carregarDoDrive(authData.driveFolderId, 'users_data');
-                            if (usersData && Array.isArray(usersData)) {
-                                // Mesclar com usuários do localStorage (Drive tem prioridade)
-                                usersData.forEach(driveUser => {
-                                    const existingIndex = allUsers.findIndex(u => u.id === driveUser.id);
-                                    if (existingIndex >= 0) {
-                                        // Atualizar com dados do Drive
-                                        allUsers[existingIndex] = { ...allUsers[existingIndex], ...driveUser };
-                                    } else {
-                                        // Adicionar novo usuário do Drive
-                                        allUsers.push(driveUser);
+                    // Buscar usuários da unidade do Firestore
+                    try {
+                        const firestoreUsers = await buscarUsuariosUnidadeFirestore(authData.unidadeId);
+                        setUnidadeUsers(firestoreUsers);
+                        console.log(`✅ ${firestoreUsers.length} usuários encontrados no Firestore`);
+                    } catch (e) {
+                        console.error("Erro ao buscar usuários do Firestore:", e);
+                        // Fallback: buscar do localStorage
+                        const allUsers = [];
+                        for (let i = 0; i < localStorage.length; i++) {
+                            const key = localStorage.key(i);
+                            if (key && key.startsWith('user_')) {
+                                try {
+                                    const userData = JSON.parse(localStorage.getItem(key));
+                                    if (userData.unidadeId === authData.unidadeId) {
+                                        allUsers.push({ id: key.replace('user_', ''), ...userData });
                                     }
-                                });
+                                } catch (e) {
+                                    // Ignorar erros de parsing
+                                }
                             }
-                        } catch (e) {
-                            console.warn("Erro ao carregar usuários do Drive:", e);
                         }
+                        setUnidadeUsers(allUsers);
                     }
-                    
-                    setUnidadeUsers(allUsers);
                 };
                 
                 loadUsers();
@@ -3861,6 +3940,17 @@
             // Carregar lista de emails convidados e solicitações pendentes ao montar o componente
             useEffect(() => {
                 const loadData = async () => {
+                    // Carregar solicitações pendentes do Firestore
+                    try {
+                        const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
+                        setPendingRequests(requests);
+                        console.log(`✅ ${requests.length} solicitações pendentes encontradas`);
+                    } catch (e) {
+                        console.error('Erro ao carregar solicitações:', e);
+                        setPendingRequests([]);
+                    }
+                    
+                    // Carregar emails convidados do Drive (se disponível)
                     if (driveFolderId) {
                         try {
                             const invitations = await carregarDoDrive(driveFolderId, 'invited_emails');
@@ -3870,20 +3960,10 @@
                         } catch (e) {
                             setInvitedEmails([]);
                         }
-                        
-                        try {
-                            const requests = await carregarDoDrive(driveFolderId, 'pending_requests');
-                            if (requests && Array.isArray(requests)) {
-                                // Filtrar apenas solicitações pendentes
-                                setPendingRequests(requests.filter(r => r.status === 'pending'));
-                            }
-                        } catch (e) {
-                            setPendingRequests([]);
-                        }
                     }
                 };
                 loadData();
-            }, [driveFolderId]);
+            }, [unidadeId, driveFolderId]);
 
             const handleInvite = async (e) => {
                 e.preventDefault();
@@ -4076,85 +4156,69 @@ Equipe Sacramental LDS`);
             const handleApprove = async (userId, requestId = null) => {
                 try {
                     setLoading(true);
-                    const userDataStr = localStorage.getItem(`user_${userId}`);
-                    if (userDataStr) {
-                        const userData = JSON.parse(userDataStr);
-                        userData.status = 'approved';
-                        userData.unidadeId = unidadeId;
-                        localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
-                        
-                        // Atualizar também no Drive
-                        if (driveFolderId) {
-                            try {
-                                let usersData = [];
-                                const existingUsersData = await carregarDoDrive(driveFolderId, 'users_data');
-                                if (existingUsersData && Array.isArray(existingUsersData)) {
-                                    usersData = existingUsersData;
-                                }
-                                const userIndex = usersData.findIndex(u => u.id === userId);
-                                if (userIndex >= 0) {
-                                    usersData[userIndex] = { ...usersData[userIndex], ...userData, status: 'approved', unidadeId: unidadeId };
-                                } else {
-                                    usersData.push({ id: userId, ...userData, status: 'approved', unidadeId: unidadeId });
-                                }
-                                await salvarNoDrive(driveFolderId, 'users_data', usersData);
-                                
-                                // Se foi uma solicitação pendente, remover da lista
-                                if (requestId) {
-                                    let allRequests = [];
-                                    try {
-                                        const existingRequests = await carregarDoDrive(driveFolderId, 'pending_requests');
-                                        if (existingRequests && Array.isArray(existingRequests)) {
-                                            allRequests = existingRequests;
-                                        }
-                                    } catch (e) {
-                                        // Arquivo não existe
-                                    }
-                                    
-                                    // Marcar solicitação como aprovada
-                                    const requestIndex = allRequests.findIndex(r => r.userId === userId || r.email?.toLowerCase() === userData.email?.toLowerCase());
-                                    if (requestIndex >= 0) {
-                                        allRequests[requestIndex].status = 'approved';
-                                        allRequests[requestIndex].aprovadoEm = new Date().toISOString();
-                                    }
-                                    
-                                    await salvarNoDrive(driveFolderId, 'pending_requests', allRequests);
-                                    setPendingRequests(allRequests.filter(r => r.status === 'pending'));
-                                }
-                                
-                                // Compartilhar pasta do Drive com o usuário
-                                try {
-                                    const token = await getGoogleAccessToken();
-                                    await fetch(
-                                        `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
-                                        {
-                                            method: 'POST',
-                                            headers: {
-                                                'Authorization': `Bearer ${token}`,
-                                                'Content-Type': 'application/json',
-                                            },
-                                            body: JSON.stringify({
-                                                role: 'writer',
-                                                type: 'user',
-                                                emailAddress: userData.email,
-                                                sendNotificationEmail: false
-                                            })
-                                        }
-                                    );
-                                } catch (e) {
-                                    console.warn('Erro ao compartilhar pasta:', e);
-                                }
-                            } catch (e) {
-                                console.warn("Erro ao salvar aprovação no Drive:", e);
-                            }
+                    
+                    // Buscar dados do usuário no Firestore
+                    let userData = await carregarUsuarioFirestore(userId);
+                    if (!userData) {
+                        // Tentar do localStorage (migração)
+                        const userDataStr = localStorage.getItem(`user_${userId}`);
+                        if (userDataStr) {
+                            userData = JSON.parse(userDataStr);
+                        } else {
+                            setError('Usuário não encontrado.');
+                            setLoading(false);
+                            return;
                         }
-                        
-                        setSuccess(`Usuário ${userData.email} aprovado com sucesso!`);
-                        setTimeout(() => {
-                            window.location.reload();
-                        }, 1000);
                     }
+                    
+                    // Atualizar status do usuário no Firestore
+                    userData.status = 'approved';
+                    userData.unidadeId = unidadeId;
+                    await salvarUsuarioFirestore(userId, userData);
+                    
+                    // Salvar no localStorage para compatibilidade
+                    localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
+                    
+                    // Se foi uma solicitação pendente, atualizar no Firestore
+                    if (requestId) {
+                        await atualizarSolicitacaoFirestore(requestId, 'approved');
+                        // Recarregar lista de solicitações
+                        const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
+                        setPendingRequests(requests);
+                    }
+                    
+                    // Compartilhar pasta do Drive com o usuário (para dados dos membros)
+                    if (driveFolderId && userData.email) {
+                        try {
+                            await solicitarAcessoDrive();
+                            const token = await getGoogleAccessToken();
+                            await fetch(
+                                `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
+                                {
+                                    method: 'POST',
+                                    headers: {
+                                        'Authorization': `Bearer ${token}`,
+                                        'Content-Type': 'application/json',
+                                    },
+                                    body: JSON.stringify({
+                                        role: 'writer',
+                                        type: 'user',
+                                        emailAddress: userData.email,
+                                        sendNotificationEmail: false
+                                    })
+                                }
+                            );
+                        } catch (e) {
+                            console.warn('Erro ao compartilhar pasta do Drive (não crítico):', e);
+                        }
+                    }
+                    
+                    setSuccess(`Usuário ${userData.email} aprovado com sucesso!`);
+                    setTimeout(() => {
+                        window.location.reload();
+                    }, 1000);
                 } catch (e) {
+                    console.error('Erro ao aprovar usuário:', e);
                     setError('Erro ao aprovar usuário.');
                 } finally {
                     setLoading(false);
@@ -4166,29 +4230,19 @@ Equipe Sacramental LDS`);
                 
                 try {
                     setLoading(true);
-                    let allRequests = [];
-                    try {
-                        const existingRequests = await carregarDoDrive(driveFolderId, 'pending_requests');
-                        if (existingRequests && Array.isArray(existingRequests)) {
-                            allRequests = existingRequests;
-                        }
-                    } catch (e) {
-                        // Arquivo não existe
+                    
+                    // Atualizar solicitação no Firestore
+                    if (request.id) {
+                        await atualizarSolicitacaoFirestore(request.id, 'rejected');
                     }
                     
-                    // Marcar como rejeitada
-                    const requestIndex = allRequests.findIndex(r => 
-                        r.userId === request.userId || r.email?.toLowerCase() === request.email?.toLowerCase()
-                    );
-                    if (requestIndex >= 0) {
-                        allRequests[requestIndex].status = 'rejected';
-                        allRequests[requestIndex].rejeitadoEm = new Date().toISOString();
-                    }
+                    // Recarregar lista de solicitações pendentes
+                    const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
+                    setPendingRequests(requests);
                     
-                    await salvarNoDrive(driveFolderId, 'pending_requests', allRequests);
-                    setPendingRequests(allRequests.filter(r => r.status === 'pending'));
                     setSuccess('Solicitação rejeitada.');
                 } catch (e) {
+                    console.error('Erro ao rejeitar solicitação:', e);
                     setError('Erro ao rejeitar solicitação.');
                 } finally {
                     setLoading(false);
@@ -4196,13 +4250,19 @@ Equipe Sacramental LDS`);
             };
 
             const handleRemove = async (userId) => {
-                const userDataStr = localStorage.getItem(`user_${userId}`);
-                if (!userDataStr) {
-                    setError('Usuário não encontrado.');
-                    return;
+                // Buscar dados do usuário no Firestore
+                let userData = await carregarUsuarioFirestore(userId);
+                if (!userData) {
+                    // Tentar do localStorage (migração)
+                    const userDataStr = localStorage.getItem(`user_${userId}`);
+                    if (userDataStr) {
+                        userData = JSON.parse(userDataStr);
+                    } else {
+                        setError('Usuário não encontrado.');
+                        return;
+                    }
                 }
                 
-                const userData = JSON.parse(userDataStr);
                 const userEmail = userData.email;
                 
                 if (!confirm(`Tem certeza que deseja remover o acesso de ${userEmail}?\n\nIsso irá:\n- Remover o acesso à unidade\n- Remover o compartilhamento do Drive\n- O usuário não poderá mais acessar os dados desta unidade`)) {
@@ -4212,9 +4272,10 @@ Equipe Sacramental LDS`);
                 try {
                     setLoading(true);
                     
-                    // Remover compartilhamento do Drive
+                    // Remover compartilhamento do Drive (para dados dos membros)
                     if (driveFolderId && userEmail) {
                         try {
+                            await solicitarAcessoDrive();
                             const token = await getGoogleAccessToken();
                             
                             // Buscar todas as permissões da pasta
@@ -4249,40 +4310,14 @@ Equipe Sacramental LDS`);
                         }
                     }
                     
-                    // Atualizar dados do usuário
+                    // Atualizar dados do usuário no Firestore
                     userData.unidadeId = null;
                     userData.status = 'removed';
                     userData.removidoEm = new Date().toISOString();
-                    localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
+                    await salvarUsuarioFirestore(userId, userData);
                     
-                    // Atualizar também no Drive
-                    if (driveFolderId) {
-                        try {
-                            let usersData = [];
-                            const existingUsersData = await carregarDoDrive(driveFolderId, 'users_data');
-                            if (existingUsersData && Array.isArray(existingUsersData)) {
-                                usersData = existingUsersData;
-                            }
-                            const userIndex = usersData.findIndex(u => u.id === userId);
-                            if (userIndex >= 0) {
-                                usersData[userIndex].status = 'removed';
-                                usersData[userIndex].unidadeId = null;
-                                usersData[userIndex].removidoEm = new Date().toISOString();
-                            } else {
-                                // Se não encontrou, adicionar como removido
-                                usersData.push({
-                                    id: userId,
-                                    email: userEmail,
-                                    status: 'removed',
-                                    removidoEm: new Date().toISOString()
-                                });
-                            }
-                            await salvarNoDrive(driveFolderId, 'users_data', usersData);
-                            console.log('✅ Usuário removido do Drive');
-                        } catch (e) {
-                            console.warn("Erro ao salvar remoção no Drive:", e);
-                        }
-                    }
+                    // Salvar no localStorage para compatibilidade
+                    localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
                     
                     setSuccess(`Acesso de ${userEmail} removido com sucesso!`);
                     setLoading(false);
@@ -4367,16 +4402,16 @@ Equipe Sacramental LDS`);
                                                 {request.nome && (
                                                     <p className="text-xs text-gray-500">{request.nome}</p>
                                                 )}
-                                                {request.solicitadoEm && (
+                                                {request.criadoEm && (
                                                     <p className="text-xs text-gray-400 mt-1">
-                                                        Solicitado em {new Date(request.solicitadoEm).toLocaleDateString('pt-BR')}
+                                                        Solicitado em {request.criadoEm.toDate ? request.criadoEm.toDate().toLocaleDateString('pt-BR') : new Date(request.criadoEm).toLocaleDateString('pt-BR')}
                                                     </p>
                                                 )}
                                             </div>
                                             <div className="flex items-center gap-2 ml-3">
                                                 <button
                                                     onClick={() => {
-                                                        // Criar ou atualizar dados do usuário
+                                                        // Criar ou atualizar dados do usuário no Firestore
                                                         const userData = {
                                                             id: request.userId,
                                                             email: request.email,
@@ -4384,10 +4419,19 @@ Equipe Sacramental LDS`);
                                                             unidadeId: unidadeId,
                                                             role: 'user',
                                                             status: 'pending',
-                                                            criadoEm: request.solicitadoEm || new Date().toISOString()
+                                                            criadoEm: request.criadoEm?.toDate ? request.criadoEm.toDate().toISOString() : (request.solicitadoEm || new Date().toISOString())
                                                         };
-                                                        localStorage.setItem(`user_${request.userId}`, JSON.stringify(userData));
-                                                        handleApprove(request.userId, request.userId);
+                                                        
+                                                        // Salvar no Firestore
+                                                        salvarUsuarioFirestore(request.userId, userData).then(() => {
+                                                            // Salvar no localStorage para compatibilidade
+                                                            localStorage.setItem(`user_${request.userId}`, JSON.stringify(userData));
+                                                            // Aprovar
+                                                            handleApprove(request.userId, request.id);
+                                                        }).catch(e => {
+                                                            console.error('Erro ao salvar usuário:', e);
+                                                            setError('Erro ao salvar dados do usuário.');
+                                                        });
                                                     }}
                                                     className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all"
                                                     title="Aprovar solicitação"
