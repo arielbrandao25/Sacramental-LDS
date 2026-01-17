@@ -3827,45 +3827,40 @@
                 try {
                     const emailLower = email.toLowerCase().trim();
                     
-                    // Verificar se o email já está na lista de convites
-                    if (invitedEmails.includes(emailLower)) {
-                        setError('Este email já foi convidado.');
-                        setLoading(false);
-                        return;
-                    }
+                    // Verificar se o email já está cadastrado como usuário ATIVO que JÁ FEZ LOGIN
+                    // (tem UID e status approved, não apenas na lista de convites)
+                    let isActiveUser = false;
                     
-                    // Verificar se o email já está cadastrado como usuário ATIVO (aprovado e não removido)
+                    // Verificar no localStorage (unidadeUsers)
                     const existingUser = unidadeUsers.find(u => {
                         const uEmail = (u.email || '').toLowerCase().trim();
                         return uEmail === emailLower && 
+                               u.id && // Tem UID = já fez login
                                u.status === 'approved' && 
                                u.unidadeId === unidadeId &&
                                u.status !== 'removed';
                     });
                     
                     if (existingUser) {
-                        setError('Este email já está cadastrado como usuário ativo nesta unidade.');
-                        setLoading(false);
-                        return;
+                        isActiveUser = true;
                     }
                     
                     // Verificar também no Drive para ter certeza
-                    if (driveFolderId) {
+                    if (!isActiveUser && driveFolderId) {
                         try {
                             const usersData = await carregarDoDrive(driveFolderId, 'users_data');
                             if (usersData && Array.isArray(usersData)) {
                                 const driveUser = usersData.find(u => {
                                     const uEmail = (u.email || '').toLowerCase().trim();
                                     return uEmail === emailLower && 
+                                           u.id && // Tem UID = já fez login
                                            u.status === 'approved' && 
                                            u.unidadeId === unidadeId &&
                                            u.status !== 'removed';
                                 });
                                 
                                 if (driveUser) {
-                                    setError('Este email já está cadastrado como usuário ativo nesta unidade.');
-                                    setLoading(false);
-                                    return;
+                                    isActiveUser = true;
                                 }
                             }
                         } catch (e) {
@@ -3874,9 +3869,27 @@
                         }
                     }
                     
-                    // Adicionar email à lista de convites
-                    const newInvitedEmails = [...invitedEmails, emailLower];
-                    setInvitedEmails(newInvitedEmails);
+                    if (isActiveUser) {
+                        setError('Este email já está cadastrado como usuário ativo que já fez login. Se a pessoa não consegue entrar, verifique se ela está usando o mesmo email do Google.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    // Se já está na lista de convites mas não fez login ainda, permitir reconvidar
+                    // (isso atualiza o compartilhamento do Drive)
+                    const alreadyInvited = invitedEmails.includes(emailLower);
+                    if (alreadyInvited) {
+                        console.log('📧 Email já está na lista de convites, atualizando compartilhamento...');
+                    }
+                    
+                    // Adicionar email à lista de convites (ou manter se já estiver)
+                    let newInvitedEmails;
+                    if (alreadyInvited) {
+                        newInvitedEmails = invitedEmails; // Manter lista existente
+                    } else {
+                        newInvitedEmails = [...invitedEmails, emailLower];
+                        setInvitedEmails(newInvitedEmails);
+                    }
                     
                     // Salvar no Drive
                     if (driveFolderId) {
@@ -3928,7 +3941,11 @@ Atenciosamente,
 Equipe Sacramental LDS`);
                     const mailtoLink = `mailto:${email}?subject=${emailSubject}&body=${emailBody}`;
                     
-                    setSuccess(`Convite enviado para ${email}! A pessoa pode fazer login com Google usando este email.`);
+                    if (alreadyInvited) {
+                        setSuccess(`Convite atualizado para ${email}! O compartilhamento do Drive foi renovado. A pessoa pode fazer login com Google usando este email.`);
+                    } else {
+                        setSuccess(`Convite enviado para ${email}! A pessoa pode fazer login com Google usando este email.`);
+                    }
                     setEmail('');
                     
                     // Mostrar link para enviar email
@@ -3936,8 +3953,8 @@ Equipe Sacramental LDS`);
                     inviteModal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm';
                     inviteModal.innerHTML = `
                         <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 p-6 animate-slide-up">
-                            <h3 class="text-xl font-bold text-gray-900 mb-4">Convite Criado!</h3>
-                            <p class="text-sm text-gray-600 mb-4">O email <strong>${email}</strong> foi adicionado à lista de convidados.</p>
+                            <h3 class="text-xl font-bold text-gray-900 mb-4">${alreadyInvited ? 'Convite Atualizado!' : 'Convite Criado!'}</h3>
+                            <p class="text-sm text-gray-600 mb-4">O email <strong>${email}</strong> ${alreadyInvited ? 'já estava na lista de convidados e o compartilhamento foi renovado' : 'foi adicionado à lista de convidados'}.</p>
                             <p class="text-xs text-gray-500 mb-4">A pessoa deve fazer login com Google usando este email para ter acesso automático.</p>
                             <div class="flex gap-3">
                                 <a 
