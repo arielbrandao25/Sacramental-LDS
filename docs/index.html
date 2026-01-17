@@ -161,7 +161,7 @@
         
         // Salvar unidade no Firestore
         const salvarUnidadeFirestore = async (unidadeData) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 console.warn('⚠️ Firestore não disponível, usando localStorage');
                 localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
                 return unidadeData.id;
@@ -186,7 +186,7 @@
         
         // Carregar unidade do Firestore
         const carregarUnidadeFirestore = async (unidadeId) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 // Fallback para localStorage
                 const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
                 if (unidadeDataStr) {
@@ -219,7 +219,7 @@
         
         // Buscar todas as unidades do Firestore
         const buscarTodasUnidadesFirestore = async () => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 console.warn('⚠️ Firestore não disponível, buscando no localStorage');
                 // Buscar no localStorage como fallback
                 const unidades = [];
@@ -270,7 +270,7 @@
         
         // Salvar usuário no Firestore
         const salvarUsuarioFirestore = async (userId, userData) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 console.warn('⚠️ Firestore não disponível, usando localStorage');
                 localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
                 return;
@@ -293,7 +293,7 @@
         
         // Carregar usuário do Firestore
         const carregarUsuarioFirestore = async (userId) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 // Fallback para localStorage
                 const userDataStr = localStorage.getItem(`user_${userId}`);
                 if (userDataStr) {
@@ -326,7 +326,7 @@
         
         // Buscar usuários de uma unidade
         const buscarUsuariosUnidadeFirestore = async (unidadeId) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 // Fallback para localStorage
                 const usuarios = [];
                 for (let i = 0; i < localStorage.length; i++) {
@@ -376,7 +376,7 @@
         
         // Salvar solicitação pendente no Firestore
         const salvarSolicitacaoFirestore = async (solicitacao) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 console.warn('⚠️ Firestore não disponível, usando localStorage');
                 // Salvar no localStorage como fallback
                 const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
@@ -403,7 +403,7 @@
         
         // Buscar solicitações pendentes de uma unidade
         const buscarSolicitacoesPendentesFirestore = async (unidadeId) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 // Fallback para localStorage
                 const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
                 return solicitacoes.filter(s => s.unidadeId === unidadeId && s.status === 'pending');
@@ -431,7 +431,7 @@
         
         // Atualizar status de solicitação
         const atualizarSolicitacaoFirestore = async (solicitacaoId, status) => {
-            if (!db) {
+            if (!db || typeof db === 'undefined') {
                 console.warn('⚠️ Firestore não disponível, usando localStorage');
                 // Atualizar no localStorage como fallback
                 const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
@@ -1882,7 +1882,7 @@
                                 try {
                                     userData = JSON.parse(userDataStr);
                                     // Migrar para Firestore (se disponível)
-                                    if (userData && db) {
+                                    if (userData && db && typeof db !== 'undefined') {
                                         try {
                                             await salvarUsuarioFirestore(user.uid, userData);
                                         } catch (e) {
@@ -1911,7 +1911,7 @@
                                     try {
                                         unidadeData = JSON.parse(unidadeDataStr);
                                         // Migrar para Firestore (se disponível)
-                                        if (unidadeData && db) {
+                                        if (unidadeData && db && typeof db !== 'undefined') {
                                             try {
                                                 await salvarUnidadeFirestore(unidadeData);
                                             } catch (e) {
@@ -4832,40 +4832,69 @@ Equipe Sacramental LDS`);
 
         // Renderização
         // Renderizar o app com tratamento de erros
-        try {
-            const rootElement = document.getElementById('root');
-            if (!rootElement) {
-                throw new Error('Elemento root não encontrado');
+        (async () => {
+            try {
+                console.log('🚀 Iniciando renderização do app...');
+                
+                // Aguardar um pouco para garantir que tudo está carregado
+                await new Promise(resolve => setTimeout(resolve, 100));
+                
+                const rootElement = document.getElementById('root');
+                if (!rootElement) {
+                    throw new Error('Elemento root não encontrado');
+                }
+                
+                // Esconder overlay de loading
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay) {
+                    loadingOverlay.style.display = 'none';
+                }
+                
+                console.log('📦 Criando root do React...');
+                const root = createRoot(rootElement);
+                
+                console.log('🎨 Renderizando componente...');
+                root.render(<PlanejadorSacramental />);
+                console.log('✅ App renderizado com sucesso');
+            } catch (e) {
+                console.error('❌ Erro ao renderizar app:', e);
+                console.error('Stack:', e.stack);
+                
+                const loadingOverlay = document.getElementById('loading-overlay');
+                if (loadingOverlay) {
+                    loadingOverlay.style.display = 'none';
+                }
+                
+                const errorOverlay = document.getElementById('error-overlay');
+                if (errorOverlay) {
+                    errorOverlay.style.display = 'block';
+                    errorOverlay.innerHTML = `
+                        <div style="padding: 20px; max-width: 800px; margin: 0 auto;">
+                            <h3 style="font-size:18px; font-weight:bold; margin-bottom:10px; color: #b91c1c;">Erro ao carregar o aplicativo:</h3>
+                            <p style="margin-bottom:10px; color: #7f1d1d;">${e.message || 'Erro desconhecido'}</p>
+                            <pre style="background:#fef2f2; padding:10px; border-radius:8px; overflow:auto; margin-top:10px; font-size:12px; color: #991b1b;">${e.stack || 'Sem stack trace disponível'}</pre>
+                            <button onclick="window.location.reload()" style="margin-top:20px; padding:10px 20px; background:#3b82f6; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">
+                                Recarregar Página
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    // Se não tem error-overlay, mostrar no root
+                    const rootElement = document.getElementById('root');
+                    if (rootElement) {
+                        rootElement.innerHTML = `
+                            <div style="padding: 20px; text-align: center;">
+                                <h2 style="color: #b91c1c;">Erro ao carregar o aplicativo</h2>
+                                <p style="color: #7f1d1d;">${e.message || 'Erro desconhecido'}</p>
+                                <button onclick="window.location.reload()" style="margin-top:20px; padding:10px 20px; background:#3b82f6; color:white; border:none; border-radius:8px; cursor:pointer;">
+                                    Recarregar Página
+                                </button>
+                            </div>
+                        `;
+                    }
+                }
             }
-            
-            // Esconder overlay de loading
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) {
-                loadingOverlay.style.display = 'none';
-            }
-            
-            const root = createRoot(rootElement);
-            root.render(<PlanejadorSacramental />);
-            console.log('✅ App renderizado com sucesso');
-        } catch (e) {
-            console.error('❌ Erro ao renderizar app:', e);
-            const loadingOverlay = document.getElementById('loading-overlay');
-            if (loadingOverlay) {
-                loadingOverlay.style.display = 'none';
-            }
-            const errorOverlay = document.getElementById('error-overlay');
-            if (errorOverlay) {
-                errorOverlay.style.display = 'block';
-                errorOverlay.innerHTML = `
-                    <h3 style="font-size:18px; font-weight:bold; margin-bottom:10px">Erro ao carregar o aplicativo:</h3>
-                    <p style="margin-bottom:10px">${e.message || 'Erro desconhecido'}</p>
-                    <pre style="background:#fef2f2; padding:10px; border-radius:8px; overflow:auto; margin-top:10px">${e.stack || ''}</pre>
-                    <button onclick="window.location.reload()" style="margin-top:20px; padding:10px 20px; background:#3b82f6; color:white; border:none; border-radius:8px; cursor:pointer">
-                        Recarregar Página
-                    </button>
-                `;
-            }
-        }
+        })();
     </script>
 </body>
 </html>
