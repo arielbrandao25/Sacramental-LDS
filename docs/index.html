@@ -140,20 +140,32 @@
             if (firebaseConfig.apiKey) {
                 app = initializeApp(firebaseConfig);
                 auth = getAuth(app);
-                db = getFirestore(app);
-                console.log('✅ Firebase inicializado (Auth + Firestore)');
+                try {
+                    db = getFirestore(app);
+                    console.log('✅ Firebase inicializado (Auth + Firestore)');
+                } catch (firestoreError) {
+                    console.error("⚠️ Erro ao inicializar Firestore:", firestoreError);
+                    console.warn("Continuando sem Firestore - algumas funcionalidades podem não funcionar");
+                    // Continuar sem Firestore - o app ainda pode funcionar
+                }
             } else {
                 throw new Error("Chave de API do Firebase não encontrada.");
             }
         } catch (e) {
             console.error("Erro crítico no Firebase:", e);
-            throw e;
+            // Não lançar erro - tentar continuar
+            console.warn("Tentando continuar sem Firebase completo...");
         }
 
         // --- FUNÇÕES FIRESTORE (Para Unidades e Usuários) ---
         
         // Salvar unidade no Firestore
         const salvarUnidadeFirestore = async (unidadeData) => {
+            if (!db) {
+                console.warn('⚠️ Firestore não disponível, usando localStorage');
+                localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
+                return unidadeData.id;
+            }
             try {
                 const unidadeRef = doc(db, 'unidades', unidadeData.id);
                 await setDoc(unidadeRef, {
@@ -161,30 +173,71 @@
                     atualizadoEm: serverTimestamp()
                 }, { merge: true });
                 console.log('✅ Unidade salva no Firestore:', unidadeData.id);
+                // Também salvar no localStorage como backup
+                localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
                 return unidadeData.id;
             } catch (e) {
                 console.error('❌ Erro ao salvar unidade no Firestore:', e);
-                throw e;
+                // Fallback para localStorage
+                localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
+                return unidadeData.id;
             }
         };
         
         // Carregar unidade do Firestore
         const carregarUnidadeFirestore = async (unidadeId) => {
+            if (!db) {
+                // Fallback para localStorage
+                const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
+                if (unidadeDataStr) {
+                    return JSON.parse(unidadeDataStr);
+                }
+                return null;
+            }
             try {
                 const unidadeRef = doc(db, 'unidades', unidadeId);
                 const unidadeSnap = await getDoc(unidadeRef);
                 if (unidadeSnap.exists()) {
                     return { id: unidadeSnap.id, ...unidadeSnap.data() };
                 }
+                // Fallback para localStorage
+                const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
+                if (unidadeDataStr) {
+                    return JSON.parse(unidadeDataStr);
+                }
                 return null;
             } catch (e) {
                 console.error('❌ Erro ao carregar unidade do Firestore:', e);
+                // Fallback para localStorage
+                const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
+                if (unidadeDataStr) {
+                    return JSON.parse(unidadeDataStr);
+                }
                 return null;
             }
         };
         
         // Buscar todas as unidades do Firestore
         const buscarTodasUnidadesFirestore = async () => {
+            if (!db) {
+                console.warn('⚠️ Firestore não disponível, buscando no localStorage');
+                // Buscar no localStorage como fallback
+                const unidades = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('unidade_')) {
+                        try {
+                            const unidadeData = JSON.parse(localStorage.getItem(key));
+                            if (unidadeData && unidadeData.nome) {
+                                unidades.push(unidadeData);
+                            }
+                        } catch (e) {
+                            // Ignorar erros
+                        }
+                    }
+                }
+                return unidades;
+            }
             try {
                 const unidadesRef = collection(db, 'unidades');
                 const unidadesSnap = await getDocs(unidadesRef);
@@ -196,12 +249,32 @@
                 return unidades;
             } catch (e) {
                 console.error('❌ Erro ao buscar unidades do Firestore:', e);
-                return [];
+                // Fallback para localStorage
+                const unidades = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('unidade_')) {
+                        try {
+                            const unidadeData = JSON.parse(localStorage.getItem(key));
+                            if (unidadeData && unidadeData.nome) {
+                                unidades.push(unidadeData);
+                            }
+                        } catch (e) {
+                            // Ignorar erros
+                        }
+                    }
+                }
+                return unidades;
             }
         };
         
         // Salvar usuário no Firestore
         const salvarUsuarioFirestore = async (userId, userData) => {
+            if (!db) {
+                console.warn('⚠️ Firestore não disponível, usando localStorage');
+                localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
+                return;
+            }
             try {
                 const userRef = doc(db, 'usuarios', userId);
                 await setDoc(userRef, {
@@ -209,29 +282,68 @@
                     atualizadoEm: serverTimestamp()
                 }, { merge: true });
                 console.log('✅ Usuário salvo no Firestore:', userId);
+                // Também salvar no localStorage como backup
+                localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
             } catch (e) {
                 console.error('❌ Erro ao salvar usuário no Firestore:', e);
-                throw e;
+                // Fallback para localStorage
+                localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
             }
         };
         
         // Carregar usuário do Firestore
         const carregarUsuarioFirestore = async (userId) => {
+            if (!db) {
+                // Fallback para localStorage
+                const userDataStr = localStorage.getItem(`user_${userId}`);
+                if (userDataStr) {
+                    return JSON.parse(userDataStr);
+                }
+                return null;
+            }
             try {
                 const userRef = doc(db, 'usuarios', userId);
                 const userSnap = await getDoc(userRef);
                 if (userSnap.exists()) {
                     return { id: userSnap.id, ...userSnap.data() };
                 }
+                // Fallback para localStorage
+                const userDataStr = localStorage.getItem(`user_${userId}`);
+                if (userDataStr) {
+                    return JSON.parse(userDataStr);
+                }
                 return null;
             } catch (e) {
                 console.error('❌ Erro ao carregar usuário do Firestore:', e);
+                // Fallback para localStorage
+                const userDataStr = localStorage.getItem(`user_${userId}`);
+                if (userDataStr) {
+                    return JSON.parse(userDataStr);
+                }
                 return null;
             }
         };
         
         // Buscar usuários de uma unidade
         const buscarUsuariosUnidadeFirestore = async (unidadeId) => {
+            if (!db) {
+                // Fallback para localStorage
+                const usuarios = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('user_')) {
+                        try {
+                            const userData = JSON.parse(localStorage.getItem(key));
+                            if (userData.unidadeId === unidadeId) {
+                                usuarios.push({ id: key.replace('user_', ''), ...userData });
+                            }
+                        } catch (e) {
+                            // Ignorar erros
+                        }
+                    }
+                }
+                return usuarios;
+            }
             try {
                 const usuariosRef = collection(db, 'usuarios');
                 const q = query(usuariosRef, where('unidadeId', '==', unidadeId));
@@ -243,12 +355,35 @@
                 return usuarios;
             } catch (e) {
                 console.error('❌ Erro ao buscar usuários da unidade:', e);
-                return [];
+                // Fallback para localStorage
+                const usuarios = [];
+                for (let i = 0; i < localStorage.length; i++) {
+                    const key = localStorage.key(i);
+                    if (key && key.startsWith('user_')) {
+                        try {
+                            const userData = JSON.parse(localStorage.getItem(key));
+                            if (userData.unidadeId === unidadeId) {
+                                usuarios.push({ id: key.replace('user_', ''), ...userData });
+                            }
+                        } catch (e) {
+                            // Ignorar erros
+                        }
+                    }
+                }
+                return usuarios;
             }
         };
         
         // Salvar solicitação pendente no Firestore
         const salvarSolicitacaoFirestore = async (solicitacao) => {
+            if (!db) {
+                console.warn('⚠️ Firestore não disponível, usando localStorage');
+                // Salvar no localStorage como fallback
+                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                solicitacoes.push({ ...solicitacao, status: 'pending', criadoEm: new Date().toISOString() });
+                localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
+                return;
+            }
             try {
                 const solicitacoesRef = collection(db, 'solicitacoes');
                 await addDoc(solicitacoesRef, {
@@ -259,12 +394,20 @@
                 console.log('✅ Solicitação salva no Firestore');
             } catch (e) {
                 console.error('❌ Erro ao salvar solicitação no Firestore:', e);
-                throw e;
+                // Fallback para localStorage
+                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                solicitacoes.push({ ...solicitacao, status: 'pending', criadoEm: new Date().toISOString() });
+                localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
             }
         };
         
         // Buscar solicitações pendentes de uma unidade
         const buscarSolicitacoesPendentesFirestore = async (unidadeId) => {
+            if (!db) {
+                // Fallback para localStorage
+                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                return solicitacoes.filter(s => s.unidadeId === unidadeId && s.status === 'pending');
+            }
             try {
                 const solicitacoesRef = collection(db, 'solicitacoes');
                 const q = query(
@@ -280,12 +423,26 @@
                 return solicitacoes;
             } catch (e) {
                 console.error('❌ Erro ao buscar solicitações:', e);
-                return [];
+                // Fallback para localStorage
+                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                return solicitacoes.filter(s => s.unidadeId === unidadeId && s.status === 'pending');
             }
         };
         
         // Atualizar status de solicitação
         const atualizarSolicitacaoFirestore = async (solicitacaoId, status) => {
+            if (!db) {
+                console.warn('⚠️ Firestore não disponível, usando localStorage');
+                // Atualizar no localStorage como fallback
+                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                const index = solicitacoes.findIndex(s => s.id === solicitacaoId || s.userId === solicitacaoId);
+                if (index >= 0) {
+                    solicitacoes[index].status = status;
+                    solicitacoes[index].atualizadoEm = new Date().toISOString();
+                    localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
+                }
+                return;
+            }
             try {
                 const solicitacaoRef = doc(db, 'solicitacoes', solicitacaoId);
                 await updateDoc(solicitacaoRef, {
@@ -295,7 +452,14 @@
                 console.log('✅ Solicitação atualizada no Firestore');
             } catch (e) {
                 console.error('❌ Erro ao atualizar solicitação:', e);
-                throw e;
+                // Fallback para localStorage
+                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                const index = solicitacoes.findIndex(s => s.id === solicitacaoId || s.userId === solicitacaoId);
+                if (index >= 0) {
+                    solicitacoes[index].status = status;
+                    solicitacoes[index].atualizadoEm = new Date().toISOString();
+                    localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
+                }
             }
         };
 
@@ -1704,32 +1868,58 @@
                     
                     // Buscar dados do usuário do Firestore
                     try {
-                        let userData = await carregarUsuarioFirestore(user.uid);
+                        let userData = null;
+                        try {
+                            userData = await carregarUsuarioFirestore(user.uid);
+                        } catch (e) {
+                            console.warn("Erro ao buscar usuário do Firestore, tentando localStorage:", e);
+                        }
                         
                         // Se não encontrou no Firestore, verificar localStorage (migração)
                         if (!userData) {
                             const userDataStr = localStorage.getItem(`user_${user.uid}`);
                             if (userDataStr) {
-                                userData = JSON.parse(userDataStr);
-                                // Migrar para Firestore
-                                if (userData) {
-                                    await salvarUsuarioFirestore(user.uid, userData);
+                                try {
+                                    userData = JSON.parse(userDataStr);
+                                    // Migrar para Firestore (se disponível)
+                                    if (userData && db) {
+                                        try {
+                                            await salvarUsuarioFirestore(user.uid, userData);
+                                        } catch (e) {
+                                            console.warn('Erro ao migrar usuário para Firestore:', e);
+                                        }
+                                    }
+                                } catch (e) {
+                                    console.error("Erro ao parsear dados do usuário:", e);
                                 }
                             }
                         }
                         
                         if (userData && userData.unidadeId) {
                             // Buscar info da unidade do Firestore
-                            let unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
+                            let unidadeData = null;
+                            try {
+                                unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
+                            } catch (e) {
+                                console.warn("Erro ao buscar unidade do Firestore, tentando localStorage:", e);
+                            }
                             
                             // Se não encontrou no Firestore, verificar localStorage (migração)
                             if (!unidadeData) {
                                 const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
                                 if (unidadeDataStr) {
-                                    unidadeData = JSON.parse(unidadeDataStr);
-                                    // Migrar para Firestore
-                                    if (unidadeData) {
-                                        await salvarUnidadeFirestore(unidadeData);
+                                    try {
+                                        unidadeData = JSON.parse(unidadeDataStr);
+                                        // Migrar para Firestore (se disponível)
+                                        if (unidadeData && db) {
+                                            try {
+                                                await salvarUnidadeFirestore(unidadeData);
+                                            } catch (e) {
+                                                console.warn('Erro ao migrar unidade para Firestore:', e);
+                                            }
+                                        }
+                                    } catch (e) {
+                                        console.error("Erro ao parsear dados da unidade:", e);
                                     }
                                 }
                             }
@@ -1746,9 +1936,13 @@
                             }
                             
                             // Salvar no localStorage para compatibilidade
-                            localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
-                            if (unidadeData) {
-                                localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                            try {
+                                localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                                if (unidadeData) {
+                                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                                }
+                            } catch (e) {
+                                console.warn("Erro ao salvar no localStorage:", e);
                             }
                             
                             setAuthData({ 
@@ -1762,12 +1956,12 @@
                             setAuthData(null);
                         }
                     } catch (e) {
-                        console.error("Erro ao buscar dados do usuário:", e);
+                        console.error("Erro geral ao buscar dados do usuário:", e);
                         setAuthData(null);
+                    } finally {
+                        setLoading(false);
+                        if(overlay) overlay.style.display = 'none';
                     }
-                    
-                    setLoading(false);
-                    if(overlay) overlay.style.display = 'none';
                 });
                 return () => unsub();
             }, []);
@@ -4637,8 +4831,41 @@ Equipe Sacramental LDS`);
         }
 
         // Renderização
-        const root = createRoot(document.getElementById('root'));
-        root.render(<PlanejadorSacramental />);
+        // Renderizar o app com tratamento de erros
+        try {
+            const rootElement = document.getElementById('root');
+            if (!rootElement) {
+                throw new Error('Elemento root não encontrado');
+            }
+            
+            // Esconder overlay de loading
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
+            
+            const root = createRoot(rootElement);
+            root.render(<PlanejadorSacramental />);
+            console.log('✅ App renderizado com sucesso');
+        } catch (e) {
+            console.error('❌ Erro ao renderizar app:', e);
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
+            const errorOverlay = document.getElementById('error-overlay');
+            if (errorOverlay) {
+                errorOverlay.style.display = 'block';
+                errorOverlay.innerHTML = `
+                    <h3 style="font-size:18px; font-weight:bold; margin-bottom:10px">Erro ao carregar o aplicativo:</h3>
+                    <p style="margin-bottom:10px">${e.message || 'Erro desconhecido'}</p>
+                    <pre style="background:#fef2f2; padding:10px; border-radius:8px; overflow:auto; margin-top:10px">${e.stack || ''}</pre>
+                    <button onclick="window.location.reload()" style="margin-top:20px; padding:10px 20px; background:#3b82f6; color:white; border:none; border-radius:8px; cursor:pointer">
+                        Recarregar Página
+                    </button>
+                `;
+            }
+        }
     </script>
 </body>
 </html>
