@@ -774,14 +774,11 @@
             const [email, setEmail] = useState('');
             const [password, setPassword] = useState('');
             const [unidadeNome, setUnidadeNome] = useState('');
-            const [inviteToken, setInviteToken] = useState(''); // Token de convite
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
             const [showUnidadeModal, setShowUnidadeModal] = useState(false);
             const [pendingGoogleUser, setPendingGoogleUser] = useState(null);
             const [tempUnidadeNome, setTempUnidadeNome] = useState('');
-            const [showTokenModal, setShowTokenModal] = useState(false);
-            const [tempToken, setTempToken] = useState('');
 
             const handleLogin = async (e) => {
                 e.preventDefault();
@@ -908,69 +905,6 @@
                 setLoading(false);
             };
 
-            // Função auxiliar para buscar convites pelo email
-            const buscarConvitesPorEmail = async (email) => {
-                try {
-                    // Solicitar acesso ao Drive
-                    await solicitarAcessoDrive();
-                    
-                    // Buscar TODOS os arquivos invitations.json no Drive (incluindo compartilhados)
-                    const token_access = await getGoogleAccessToken();
-                    
-                    const searchResponse = await fetch(
-                        `${DRIVE_API_BASE}/files?q=name='invitations.json' and trashed=false&fields=files(id,parents,name)`,
-                        {
-                            headers: { 'Authorization': `Bearer ${token_access}` },
-                        }
-                    );
-                    
-                    if (!searchResponse.ok) {
-                        console.warn('Erro ao buscar arquivos invitations.json:', searchResponse.status);
-                        return null;
-                    }
-                    
-                    const searchData = await searchResponse.json();
-                    console.log('📋 Total de arquivos invitations.json encontrados:', searchData.files?.length || 0);
-                    
-                    if (!searchData.files || searchData.files.length === 0) {
-                        return null;
-                    }
-                    
-                    // Verificar cada arquivo invitations.json
-                    for (const file of searchData.files) {
-                        try {
-                            const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                            if (!folderId) continue;
-                            
-                            console.log(`🔍 Verificando pasta ${folderId}...`);
-                            const invitations = await carregarDoDrive(folderId, 'invitations');
-                            
-                            if (!invitations || !Array.isArray(invitations)) continue;
-                            
-                            console.log(`📝 Encontrados ${invitations.length} convites nesta pasta`);
-                            
-                            // Buscar convite pelo email (case-insensitive)
-                            const emailLower = (email || '').toLowerCase().trim();
-                            const invitation = invitations.find(inv => {
-                                const invEmail = (inv.email || '').toLowerCase().trim();
-                                return invEmail === emailLower && inv.status === 'pending';
-                            });
-                            
-                            if (invitation) {
-                                console.log('✅ Convite encontrado!', invitation);
-                                return { invitation, driveFolderId: folderId };
-                            }
-                        } catch (e) {
-                            console.warn(`⚠️ Erro ao verificar convite no arquivo ${file.id}:`, e);
-                        }
-                    }
-                    
-                    return null;
-                } catch (e) {
-                    console.error("❌ Erro ao buscar convites:", e);
-                    return null;
-                }
-            };
 
             const handleGoogleLogin = async () => {
                 setLoading(true);
@@ -1006,22 +940,16 @@
                         return;
                     }
                     
-                    // Se estiver na aba "Entrar", seguir lógica normal de verificação
+                    // Se estiver na aba "Entrar", verificar se usuário existe
                     console.log('🔍 Modo "Entrar" - Verificando se usuário já existe...');
                     
-                    // Se houver token inserido no campo, salvar no localStorage
-                    if (inviteToken && inviteToken.trim()) {
-                        localStorage.setItem('pending_invite_token', inviteToken.trim());
-                        console.log('🔑 Token salvo no localStorage:', inviteToken.trim());
-                    }
-                    
-                    // Verificar se o usuário já existe (usando UID como chave principal)
+                    // Verificar se o usuário já existe no localStorage (por UID)
                     const userDataStr = localStorage.getItem(`user_${user.uid}`);
                     
                     if (userDataStr) {
                         // Usuário existe - fazer login
                         const userData = JSON.parse(userDataStr);
-                        console.log('👤 Usuário existente encontrado:', userData);
+                        console.log('👤 Usuário existente encontrado no localStorage:', userData);
                         
                         if (userData.unidadeId && userData.status === 'approved') {
                             const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
@@ -1067,10 +995,7 @@
                         }
                     }
                     
-                    // Se estiver na aba "Entrar", verificar se já existe no Drive (como admin ou usuário cadastrado)
-                    console.log('🔍 Modo "Entrar" - Verificando se usuário já existe no Drive...');
-                    
-                    // Primeiro, verificar se o usuário já existe no Drive (pode ser admin ou usuário já cadastrado)
+                    // Se não encontrou no localStorage, verificar no Drive
                     try {
                         await solicitarAcessoDrive();
                         const token = await getGoogleAccessToken();
@@ -1154,139 +1079,11 @@
                         console.warn('⚠️ Erro ao verificar usuário no Drive:', e);
                     }
                     
-                    // Se não encontrou no Drive, buscar convites pendentes pelo email
-                    console.log('🔍 Buscando convites pendentes para:', user.email);
-                    let conviteResultado = null;
-                    try {
-                        // Tentar buscar convites - isso pode falhar se o Drive não estiver acessível
-                        // mas não deve bloquear o fluxo
-                        conviteResultado = await buscarConvitesPorEmail(user.email);
-                        if (conviteResultado) {
-                            console.log('✅ Convite encontrado na busca automática!', conviteResultado);
-                        } else {
-                            console.log('ℹ️ Nenhum convite encontrado na busca automática pelo email');
-                        }
-                    } catch (e) {
-                        console.warn('⚠️ Erro ao buscar convites pelo email (isso é normal se o Drive não estiver compartilhado ainda):', e);
-                        // Não bloquear o fluxo se houver erro - pode ser que o admin ainda não compartilhou a pasta
-                    }
-                    
-                    if (conviteResultado && conviteResultado.invitation) {
-                        // Convite encontrado - criar conta automaticamente usando UID
-                        const { invitation, driveFolderId } = conviteResultado;
-                        
-                        console.log('✅ Convite encontrado! Criando conta com UID:', user.uid);
-                        
-                        const newUserData = {
-                            id: user.uid, // UID como identificador principal
-                            email: user.email,
-                            unidadeId: invitation.unidadeId,
-                            role: 'user',
-                            status: 'pending',
-                            nome: user.displayName || user.email.split('@')[0],
-                            criadoEm: new Date().toISOString()
-                        };
-                        
-                        // Salvar no localStorage usando UID como chave
-                        localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
-                        console.log('💾 Dados salvos no localStorage com chave:', `user_${user.uid}`);
-                        
-                        // Salvar também no Drive (arquivo users_data) usando UID
-                        try {
-                            let usersData = [];
-                            const existingUsersData = await carregarDoDrive(driveFolderId, 'users_data');
-                            if (existingUsersData && Array.isArray(existingUsersData)) {
-                                usersData = existingUsersData;
-                            }
-                            
-                            // Verificar se o usuário já não está na lista (por UID ou email)
-                            const existingUser = usersData.find(u => u.id === user.uid || u.email === user.email);
-                            if (!existingUser) {
-                                usersData.push(newUserData);
-                                await salvarNoDrive(driveFolderId, 'users_data', usersData);
-                                console.log('💾 Dados salvos no Drive com UID:', user.uid);
-                            } else {
-                                console.log('⚠️ Usuário já existe no Drive, atualizando...');
-                                // Atualizar dados existentes com o UID
-                                const index = usersData.findIndex(u => u.id === user.uid || u.email === user.email);
-                                if (index >= 0) {
-                                    usersData[index] = { ...usersData[index], ...newUserData, id: user.uid };
-                                    await salvarNoDrive(driveFolderId, 'users_data', usersData);
-                                }
-                            }
-                        } catch (e) {
-                            console.warn("Erro ao salvar usuário no Drive:", e);
-                        }
-                        
-                        // Remover convite da lista
-                        try {
-                            const invitations = await carregarDoDrive(driveFolderId, 'invitations');
-                            if (invitations && Array.isArray(invitations)) {
-                                const updatedInvitations = invitations.filter(inv => 
-                                    !(inv.email === user.email && inv.unidadeId === invitation.unidadeId)
-                                );
-                                await salvarNoDrive(driveFolderId, 'invitations', updatedInvitations);
-                                console.log('🗑️ Convite removido da lista');
-                            }
-                        } catch (e) {
-                            console.warn("Erro ao remover convite:", e);
-                        }
-                        
-                        // Salvar referência da unidade no localStorage
-                        if (!localStorage.getItem(`unidade_${user.uid}`)) {
-                            localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                                id: invitation.unidadeId,
-                                driveFolderId: driveFolderId
-                            }));
-                        }
-                        
-                        // Remover token do localStorage se existir
-                        localStorage.removeItem('pending_invite_token');
-                        
-                        // Solicitar acesso ao Drive
-                        try {
-                            await solicitarAcessoDrive();
-                        } catch (e) {
-                            console.warn("Acesso ao Drive não disponível, usando dados locais");
-                        }
-                        
-                        onAuthSuccess({ 
-                            user, 
-                            unidadeId: invitation.unidadeId, 
-                            role: 'user',
-                            driveFolderId: driveFolderId,
-                            status: 'pending'
-                        });
-                        
-                        setLoading(false);
-                        return;
-                    }
-                    
-                    // Se não encontrou convite pelo email, verificar se tem token
-                    const pendingToken = localStorage.getItem('pending_invite_token');
-                    const tokenDoCampo = inviteToken && inviteToken.trim() ? inviteToken.trim() : null;
-                    const tokenParaVerificar = pendingToken || tokenDoCampo;
-                    
-                    if (tokenParaVerificar && tokenParaVerificar.trim()) {
-                        // Tentar verificar token
-                        console.log('🔑 Token encontrado, verificando...', tokenParaVerificar.substring(0, 20) + '...');
-                        try {
-                            await verificarTokenECriarConta(user, tokenParaVerificar.trim());
-                            return;
-                        } catch (e) {
-                            console.error('❌ Erro ao verificar token:', e);
-                            // Se o token falhar, continuar para mostrar modal (não bloquear)
-                            setError('Token inválido. Verifique se o token está correto ou tente inserir novamente.');
-                        }
-                    }
-                    
-                    // Se não encontrou convite nem token válido, mostrar modal para inserir token
-                    console.log('❌ Nenhum convite encontrado automaticamente. Solicitando token manual...');
-                    console.log('💡 Instrução: O usuário deve inserir o token que recebeu por email do admin.');
-                    setPendingGoogleUser(user);
-                    setShowTokenModal(true);
+                    // Se não encontrou em lugar nenhum, usuário não foi criado pelo admin
+                    console.log('❌ Usuário não encontrado. Precisa ser criado pelo administrador.');
+                    setError('Usuário não encontrado. Você precisa ser cadastrado pelo administrador da unidade. Entre em contato com o administrador para criar sua conta.');
+                    await signOut(auth);
                     setLoading(false);
-                    // NÃO fazer logout - manter o usuário logado para tentar novamente com o token
                     
                 } catch (e) {
                     console.error('Erro ao fazer login com Google:', e);
@@ -1394,211 +1191,6 @@
                 setLoading(false);
             };
 
-            const handleConfirmToken = async () => {
-                if (!tempToken.trim()) {
-                    setError('Token é obrigatório.');
-                    return;
-                }
-                
-                // Salvar token no localStorage
-                localStorage.setItem('pending_invite_token', tempToken.trim());
-                console.log('🔑 Token salvo:', tempToken.trim());
-                
-                // Fechar modal e fazer login novamente
-                setShowTokenModal(false);
-                const user = pendingGoogleUser;
-                setPendingGoogleUser(null);
-                const savedToken = tempToken.trim();
-                setTempToken('');
-                
-                // Fazer login novamente com o token
-                setLoading(true);
-                try {
-                    // Fazer login com Google novamente
-                    const provider = new GoogleAuthProvider();
-                    provider.addScope('email');
-                    provider.addScope('profile');
-                    
-                    const userCredential = await signInWithPopup(auth, provider);
-                    const loggedUser = userCredential.user;
-                    
-                    // Verificar token e criar conta
-                    await verificarTokenECriarConta(loggedUser, savedToken);
-                } catch (e) {
-                    console.error('Erro ao processar token:', e);
-                    setError('Erro ao verificar token. Tente novamente.');
-                    setLoading(false);
-                }
-            };
-            
-            const verificarTokenECriarConta = async (user, token) => {
-                let foundInvitation = null;
-                let driveFolderIdFromInvite = null;
-                
-                console.log('🔑 Verificando token:', token);
-                console.log('📧 Email do usuário:', user.email);
-                
-                try {
-                    // Solicitar acesso ao Drive para verificar o token
-                    await solicitarAcessoDrive();
-                    
-                    // Buscar TODOS os arquivos invitations.json no Drive
-                    const token_access = await getGoogleAccessToken();
-                    
-                    const searchResponse = await fetch(
-                        `${DRIVE_API_BASE}/files?q=name='invitations.json' and trashed=false&fields=files(id,parents,name)`,
-                        {
-                            headers: { 'Authorization': `Bearer ${token_access}` },
-                        }
-                    );
-                    
-                    if (searchResponse.ok) {
-                        const searchData = await searchResponse.json();
-                        console.log('📋 Total de arquivos invitations.json encontrados:', searchData.files?.length || 0);
-                        
-                        if (searchData.files && searchData.files.length > 0) {
-                            // Verificar cada arquivo invitations.json
-                            for (const file of searchData.files) {
-                                try {
-                                    const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                    if (folderId) {
-                                        console.log(`🔍 Verificando pasta ${folderId}...`);
-                                        const invitations = await carregarDoDrive(folderId, 'invitations');
-                                        if (invitations && Array.isArray(invitations)) {
-                                            console.log(`📝 Encontrados ${invitations.length} convites nesta pasta`);
-                                            
-                                            // Buscar o convite pelo token E pelo email
-                                            const invitation = invitations.find(inv => {
-                                                // Normalizar tokens para comparação (remover espaços)
-                                                const invToken = (inv.token || '').trim();
-                                                const tokenTrimmed = (token || '').trim();
-                                                const tokenMatch = invToken === tokenTrimmed;
-                                                // Comparar emails de forma case-insensitive
-                                                const invEmail = (inv.email || '').toLowerCase().trim();
-                                                const userEmail = (user.email || '').toLowerCase().trim();
-                                                const emailMatch = invEmail === userEmail;
-                                                const statusMatch = inv.status === 'pending';
-                                                
-                                                if (tokenMatch || emailMatch) {
-                                                    console.log(`  - Token: ${tokenMatch ? '✅' : '❌'} (${invToken.substring(0, 20)}... vs ${tokenTrimmed.substring(0, 20)}...), Email: ${emailMatch ? '✅' : '❌'} (${invEmail} vs ${userEmail}), Status: ${statusMatch ? '✅' : '❌'}`);
-                                                }
-                                                
-                                                return tokenMatch && emailMatch && statusMatch;
-                                            });
-                                            
-                                            if (invitation) {
-                                                console.log('✅ Convite encontrado!', invitation);
-                                                foundInvitation = invitation;
-                                                driveFolderIdFromInvite = folderId;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.warn(`⚠️ Erro ao verificar convite no arquivo ${file.id}:`, e);
-                                }
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("❌ Erro ao verificar token de convite:", e);
-                    throw e;
-                }
-                
-                if (foundInvitation && driveFolderIdFromInvite) {
-                    // Criar conta do usuário usando UID como identificador principal
-                    console.log('✅ Token válido! Criando conta com UID:', user.uid);
-                    
-                    const newUserData = {
-                        id: user.uid, // UID como identificador principal
-                        email: user.email,
-                        unidadeId: foundInvitation.unidadeId,
-                        role: 'user',
-                        status: 'pending',
-                        nome: user.displayName || user.email.split('@')[0],
-                        criadoEm: new Date().toISOString()
-                    };
-                    
-                    // Salvar no localStorage usando UID como chave
-                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
-                    console.log('💾 Dados salvos no localStorage com chave:', `user_${user.uid}`);
-                    
-                    // Salvar também no Drive usando UID
-                    try {
-                        let usersData = [];
-                        const existingUsersData = await carregarDoDrive(driveFolderIdFromInvite, 'users_data');
-                        if (existingUsersData && Array.isArray(existingUsersData)) {
-                            usersData = existingUsersData;
-                        }
-                        
-                        // Verificar se o usuário já não está na lista (por UID ou email)
-                        const existingUser = usersData.find(u => u.id === user.uid || u.email === user.email);
-                        if (!existingUser) {
-                            usersData.push(newUserData);
-                            await salvarNoDrive(driveFolderIdFromInvite, 'users_data', usersData);
-                            console.log('💾 Dados salvos no Drive com UID:', user.uid);
-                        } else {
-                            console.log('⚠️ Usuário já existe no Drive, atualizando...');
-                            // Atualizar dados existentes com o UID
-                            const index = usersData.findIndex(u => u.id === user.uid || u.email === user.email);
-                            if (index >= 0) {
-                                usersData[index] = { ...usersData[index], ...newUserData, id: user.uid };
-                                await salvarNoDrive(driveFolderIdFromInvite, 'users_data', usersData);
-                            }
-                        }
-                    } catch (e) {
-                        console.warn("Erro ao salvar usuário no Drive:", e);
-                    }
-                    
-                    // Remover convite da lista
-                    try {
-                        const invitations = await carregarDoDrive(driveFolderIdFromInvite, 'invitations');
-                        if (invitations && Array.isArray(invitations)) {
-                            const updatedInvitations = invitations.filter(inv => 
-                                !(inv.email === user.email && inv.unidadeId === foundInvitation.unidadeId)
-                            );
-                            await salvarNoDrive(driveFolderIdFromInvite, 'invitations', updatedInvitations);
-                            console.log('🗑️ Convite removido da lista');
-                        }
-                    } catch (e) {
-                        console.warn("Erro ao remover convite:", e);
-                    }
-                    
-                    // Salvar referência da unidade no localStorage
-                    if (!localStorage.getItem(`unidade_${user.uid}`)) {
-                        localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                            id: foundInvitation.unidadeId,
-                            driveFolderId: driveFolderIdFromInvite
-                        }));
-                    }
-                    
-                    // Remover token do localStorage após usar
-                    localStorage.removeItem('pending_invite_token');
-                    
-                    // Solicitar acesso ao Drive
-                    try {
-                        await solicitarAcessoDrive();
-                    } catch (e) {
-                        console.warn("Acesso ao Drive não disponível, usando dados locais");
-                    }
-                    
-                    onAuthSuccess({ 
-                        user, 
-                        unidadeId: foundInvitation.unidadeId, 
-                        role: 'user',
-                        driveFolderId: driveFolderIdFromInvite,
-                        status: 'pending'
-                    });
-                    
-                    setLoading(false);
-                } else {
-                    setError('Token inválido ou não encontrado. Verifique se você está usando o mesmo email do convite e se o token está correto.');
-                    await signOut(auth);
-                    setLoading(false);
-                    throw new Error('Token inválido');
-                }
-            };
-            
             const handleConfirmUnidadeNome = async () => {
                 if (!tempUnidadeNome.trim()) {
                     setError('Nome da unidade é obrigatório.');
@@ -1691,23 +1283,6 @@
                                 />
                             </div>
                             
-                            {/* Campo de token de convite (apenas no modo login) */}
-                            {mode === 'login' && (
-                                <div>
-                                    <label className="block text-sm font-semibold text-gray-700 mb-2">
-                                        Token de Convite <span className="text-xs text-gray-500 font-normal">(opcional - apenas se você foi convidado)</span>
-                                    </label>
-                                    <input
-                                        type="text"
-                                        value={inviteToken}
-                                        onChange={e => setInviteToken(e.target.value)}
-                                        placeholder="Cole aqui o token recebido por email"
-                                        className="w-full border-2 border-gray-200 rounded-xl p-3 focus:border-blue-500 focus:outline-none transition-all text-sm font-mono"
-                                    />
-                                    <p className="text-xs text-gray-500 mt-1">Se você recebeu um convite por email, cole o token aqui antes de fazer login com Google.</p>
-                                </div>
-                            )}
-                            
                             <button
                                 type="submit"
                                 disabled={loading}
@@ -1747,50 +1322,6 @@
                         )}
                     </div>
 
-                    {/* Modal para inserir token de convite */}
-                    {showTokenModal && (
-                        <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
-                            <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 p-6 animate-slide-up">
-                                <h3 className="text-xl font-bold text-gray-900 mb-2">Token de Convite Necessário</h3>
-                                <p className="text-sm text-gray-600 mb-4">
-                                    Você é um novo usuário. Para criar sua conta, insira o token de convite que você recebeu por email.
-                                </p>
-                                <input
-                                    type="text"
-                                    value={tempToken}
-                                    onChange={e => setTempToken(e.target.value)}
-                                    placeholder="Cole aqui o token recebido por email"
-                                    className="w-full p-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-all mb-4 font-mono text-sm"
-                                    autoFocus
-                                    onKeyPress={e => {
-                                        if (e.key === 'Enter' && tempToken.trim()) {
-                                            handleConfirmToken();
-                                        }
-                                    }}
-                                />
-                                <div className="flex gap-3">
-                                    <button
-                                        onClick={() => {
-                                            setShowTokenModal(false);
-                                            setPendingGoogleUser(null);
-                                            setTempToken('');
-                                        }}
-                                        className="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
-                                    >
-                                        Cancelar
-                                    </button>
-                                    <button
-                                        onClick={handleConfirmToken}
-                                        disabled={!tempToken.trim()}
-                                        className="flex-1 bg-gradient-to-r from-blue-600 to-purple-600 text-white p-3 rounded-xl font-semibold hover:shadow-lg hover:scale-105 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-                                    >
-                                        Continuar
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    )}
-                    
                     {/* Modal para nome da unidade após login com Google */}
                     {showUnidadeModal && (
                         <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
@@ -1844,8 +1375,6 @@
             const [loading, setLoading] = useState(true);
             const [view, setView] = useState('agenda');
             const [currentDate, setCurrentDate] = useState(new Date());
-            const [inviteToken, setInviteToken] = useState(null);
-            const [inviteStatus, setInviteStatus] = useState(null); // 'checking', 'valid', 'invalid', 'confirmed'
             
             // Dados
             const [members, setMembers] = useState([]);
@@ -1861,198 +1390,6 @@
             const [showCallingManager, setShowCallingManager] = useState(false);
             const [showUserManager, setShowUserManager] = useState(false);
 
-            // Verificar token de convite na URL
-            useEffect(() => {
-                const urlParams = new URLSearchParams(window.location.search);
-                const inviteTokenParam = urlParams.get('invite');
-                const inviteEmailParam = urlParams.get('email');
-                
-                if (inviteTokenParam) {
-                    // Salvar token e email no localStorage
-                    localStorage.setItem('pending_invite_token', inviteTokenParam);
-                    if (inviteEmailParam) {
-                        localStorage.setItem('pending_invite_email', inviteEmailParam);
-                    }
-                    // Remover parâmetros da URL
-                    window.history.replaceState({}, document.title, window.location.pathname);
-                    
-                    // Se o usuário já estiver logado, processar o convite imediatamente
-                    if (auth && auth.currentUser) {
-                        processarConviteComToken(auth.currentUser, inviteTokenParam, inviteEmailParam);
-                    } else {
-                        // Se não estiver logado, mostrar mensagem para fazer login
-                        setInviteStatus('needs_login');
-                    }
-                }
-            }, [auth]);
-            
-            const processarConviteComToken = async (user, token, expectedEmail) => {
-                if (!user) return;
-                
-                // Verificar se o email corresponde
-                if (expectedEmail && user.email.toLowerCase() !== expectedEmail.toLowerCase()) {
-                    setInviteStatus('email_mismatch');
-                    return;
-                }
-                
-                setInviteStatus('checking');
-                
-                try {
-                    await verificarTokenECriarContaDireto(user, token);
-                } catch (e) {
-                    console.error('Erro ao processar convite:', e);
-                    setInviteStatus('error');
-                }
-            };
-            
-            const verificarTokenECriarContaDireto = async (user, token) => {
-                let foundInvitation = null;
-                let driveFolderIdFromInvite = null;
-                
-                console.log('🔑 Verificando token do link:', token);
-                console.log('📧 Email do usuário:', user.email);
-                
-                try {
-                    // Solicitar acesso ao Drive
-                    await solicitarAcessoDrive();
-                    
-                    // Buscar TODOS os arquivos invitations.json no Drive
-                    const token_access = await getGoogleAccessToken();
-                    
-                    const searchResponse = await fetch(
-                        `${DRIVE_API_BASE}/files?q=name='invitations.json' and trashed=false&fields=files(id,parents,name)`,
-                        {
-                            headers: { 'Authorization': `Bearer ${token_access}` },
-                        }
-                    );
-                    
-                    if (searchResponse.ok) {
-                        const searchData = await searchResponse.json();
-                        console.log('📋 Total de arquivos invitations.json encontrados:', searchData.files?.length || 0);
-                        
-                        if (searchData.files && searchData.files.length > 0) {
-                            for (const file of searchData.files) {
-                                try {
-                                    const folderId = file.parents && file.parents.length > 0 ? file.parents[0] : null;
-                                    if (folderId) {
-                                        console.log(`🔍 Verificando pasta ${folderId}...`);
-                                        const invitations = await carregarDoDrive(folderId, 'invitations');
-                                        if (invitations && Array.isArray(invitations)) {
-                                            console.log(`📝 Encontrados ${invitations.length} convites nesta pasta`);
-                                            
-                                            const invitation = invitations.find(inv => {
-                                                const invToken = (inv.token || '').trim();
-                                                const tokenTrimmed = (token || '').trim();
-                                                const tokenMatch = invToken === tokenTrimmed;
-                                                const invEmail = (inv.email || '').toLowerCase().trim();
-                                                const userEmail = (user.email || '').toLowerCase().trim();
-                                                const emailMatch = invEmail === userEmail;
-                                                const statusMatch = inv.status === 'pending';
-                                                
-                                                if (tokenMatch || emailMatch) {
-                                                    console.log(`  - Token: ${tokenMatch ? '✅' : '❌'}, Email: ${emailMatch ? '✅' : '❌'}, Status: ${statusMatch ? '✅' : '❌'}`);
-                                                }
-                                                
-                                                return tokenMatch && emailMatch && statusMatch;
-                                            });
-                                            
-                                            if (invitation) {
-                                                console.log('✅ Convite encontrado!', invitation);
-                                                foundInvitation = invitation;
-                                                driveFolderIdFromInvite = folderId;
-                                                break;
-                                            }
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.warn(`⚠️ Erro ao verificar convite no arquivo ${file.id}:`, e);
-                                }
-                            }
-                        }
-                    }
-                } catch (e) {
-                    console.error("❌ Erro ao verificar token de convite:", e);
-                    throw e;
-                }
-                
-                if (foundInvitation && driveFolderIdFromInvite) {
-                    // Criar conta do usuário
-                    const newUserData = {
-                        email: user.email,
-                        unidadeId: foundInvitation.unidadeId,
-                        role: 'user',
-                        status: 'pending',
-                        nome: user.displayName || user.email.split('@')[0],
-                        criadoEm: new Date().toISOString()
-                    };
-                    
-                    // Salvar no localStorage
-                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(newUserData));
-                    
-                    // Salvar também no Drive
-                    try {
-                        let usersData = [];
-                        const existingUsersData = await carregarDoDrive(driveFolderIdFromInvite, 'users_data');
-                        if (existingUsersData && Array.isArray(existingUsersData)) {
-                            usersData = existingUsersData;
-                        }
-                        if (!usersData.find(u => u.id === user.uid)) {
-                            usersData.push({ id: user.uid, ...newUserData });
-                            await salvarNoDrive(driveFolderIdFromInvite, 'users_data', usersData);
-                        }
-                    } catch (e) {
-                        console.warn("Erro ao salvar usuário no Drive:", e);
-                    }
-                    
-                    // Remover convite da lista
-                    try {
-                        const invitations = await carregarDoDrive(driveFolderIdFromInvite, 'invitations');
-                        if (invitations && Array.isArray(invitations)) {
-                            const updatedInvitations = invitations.filter(inv => 
-                                !(inv.email === user.email && inv.unidadeId === foundInvitation.unidadeId)
-                            );
-                            await salvarNoDrive(driveFolderIdFromInvite, 'invitations', updatedInvitations);
-                        }
-                    } catch (e) {
-                        console.warn("Erro ao remover convite:", e);
-                    }
-                    
-                    // Salvar referência da unidade
-                    if (!localStorage.getItem(`unidade_${user.uid}`)) {
-                        localStorage.setItem(`unidade_${user.uid}`, JSON.stringify({
-                            id: foundInvitation.unidadeId,
-                            driveFolderId: driveFolderIdFromInvite
-                        }));
-                    }
-                    
-                    // Remover token do localStorage
-                    localStorage.removeItem('pending_invite_token');
-                    localStorage.removeItem('pending_invite_email');
-                    
-                    // Fazer login
-                    try {
-                        await solicitarAcessoDrive();
-                    } catch (e) {
-                        console.warn("Acesso ao Drive não disponível, usando dados locais");
-                    }
-                    
-                    setInviteStatus('success');
-                    
-                    // Aguardar um pouco e então fazer login
-                    setTimeout(() => {
-                        setAuthData({ 
-                            user, 
-                            unidadeId: foundInvitation.unidadeId, 
-                            role: 'user',
-                            driveFolderId: driveFolderIdFromInvite,
-                            status: 'pending'
-                        });
-                    }, 1500);
-                } else {
-                    setInviteStatus('invalid');
-                    throw new Error('Token inválido ou não encontrado');
-                }
-            };
 
             // Auth
             useEffect(() => {
@@ -2275,129 +1612,6 @@
                     console.error("Erro ao fazer logout:", e);
                 }
             };
-
-            // Telas de processamento de convite
-            if (inviteStatus === 'needs_login') {
-                return (
-                    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full mx-4">
-                            <div className="text-center">
-                                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <Users className="text-blue-600" size={32} />
-                                </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Convite Recebido!</h2>
-                                <p className="text-gray-600 mb-6">Para aceitar o convite, faça login com Google usando o mesmo email do convite.</p>
-                                <button
-                                    onClick={async () => {
-                                        try {
-                                            const provider = new GoogleAuthProvider();
-                                            provider.addScope('email');
-                                            provider.addScope('profile');
-                                            const userCredential = await signInWithPopup(auth, provider);
-                                            const user = userCredential.user;
-                                            const token = localStorage.getItem('pending_invite_token');
-                                            const expectedEmail = localStorage.getItem('pending_invite_email');
-                                            await processarConviteComToken(user, token, expectedEmail);
-                                        } catch (e) {
-                                            console.error('Erro ao fazer login:', e);
-                                            setInviteStatus('error');
-                                        }
-                                    }}
-                                    className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-6 py-3 rounded-xl font-semibold hover:shadow-lg transition-all"
-                                >
-                                    Fazer Login com Google
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-            
-            if (inviteStatus === 'checking') {
-                return (
-                    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full mx-4">
-                            <div className="text-center">
-                                <div className="w-16 h-16 bg-blue-100 rounded-full flex items-center justify-center mx-auto mb-4 animate-spin">
-                                    <Users className="text-blue-600" size={32} />
-                                </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Processando Convite...</h2>
-                                <p className="text-gray-600">Aguarde enquanto criamos sua conta.</p>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-            
-            if (inviteStatus === 'success') {
-                return (
-                    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full mx-4">
-                            <div className="text-center">
-                                <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <Check className="text-green-600" size={32} />
-                                </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Conta Criada com Sucesso!</h2>
-                                <p className="text-gray-600 mb-6">Sua conta foi criada e está aguardando aprovação do responsável da unidade.</p>
-                                <p className="text-sm text-gray-500">Redirecionando...</p>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-            
-            if (inviteStatus === 'email_mismatch') {
-                return (
-                    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full mx-4">
-                            <div className="text-center">
-                                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <AlertCircle className="text-red-600" size={32} />
-                                </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Email Diferente</h2>
-                                <p className="text-gray-600 mb-6">Você está logado com um email diferente do convite. Faça logout e entre com o email correto.</p>
-                                <button
-                                    onClick={async () => {
-                                        await signOut(auth);
-                                        localStorage.removeItem('pending_invite_token');
-                                        localStorage.removeItem('pending_invite_email');
-                                        setInviteStatus(null);
-                                    }}
-                                    className="bg-gray-200 text-gray-700 px-6 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
-                                >
-                                    Fazer Logout
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
-            
-            if (inviteStatus === 'invalid' || inviteStatus === 'error') {
-                return (
-                    <div className="flex justify-center items-center min-h-screen bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50">
-                        <div className="bg-white p-8 rounded-2xl shadow-2xl border border-gray-200 max-w-md w-full mx-4">
-                            <div className="text-center">
-                                <div className="w-16 h-16 bg-red-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                                    <AlertCircle className="text-red-600" size={32} />
-                                </div>
-                                <h2 className="text-2xl font-bold text-gray-900 mb-2">Erro ao Processar Convite</h2>
-                                <p className="text-gray-600 mb-6">O link de convite não é válido ou já foi usado.</p>
-                                <button
-                                    onClick={() => {
-                                        localStorage.removeItem('pending_invite_token');
-                                        localStorage.removeItem('pending_invite_email');
-                                        setInviteStatus(null);
-                                    }}
-                                    className="bg-gray-200 text-gray-700 px-6 py-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
-                                >
-                                    Voltar
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-                );
-            }
 
             if (loading) return null;
 
@@ -4408,15 +3622,29 @@
             const [error, setError] = useState('');
             const [success, setSuccess] = useState('');
 
-            const handleInvite = async (e) => {
+            const handleCreateUser = async (e) => {
                 e.preventDefault();
                 setLoading(true);
                 setError('');
                 setSuccess('');
                 
                 try {
-                    // Verificar se o email já está cadastrado (localStorage e Drive)
+                    // Verificar se o email já está cadastrado
                     let existingUser = null;
+                    
+                    // Verificar no Drive (arquivo users_data)
+                    if (driveFolderId) {
+                        try {
+                            const usersData = await carregarDoDrive(driveFolderId, 'users_data');
+                            if (usersData && Array.isArray(usersData)) {
+                                existingUser = usersData.find(u => u.email === email);
+                            }
+                        } catch (e) {
+                            console.warn("Erro ao verificar usuários no Drive:", e);
+                        }
+                    }
+                    
+                    // Verificar também no localStorage
                     for (let i = 0; i < localStorage.length; i++) {
                         const key = localStorage.key(i);
                         if (key && key.startsWith('user_')) {
@@ -4432,18 +3660,6 @@
                         }
                     }
                     
-                    // Verificar também no Drive (arquivo users_data)
-                    if (!existingUser && driveFolderId) {
-                        try {
-                            const usersData = await carregarDoDrive(driveFolderId, 'users_data');
-                            if (usersData && Array.isArray(usersData)) {
-                                existingUser = usersData.find(u => u.email === email);
-                            }
-                        } catch (e) {
-                            console.warn("Erro ao verificar usuários no Drive:", e);
-                        }
-                    }
-                    
                     if (existingUser) {
                         if (existingUser.unidadeId === unidadeId) {
                             setError('Este usuário já faz parte desta unidade.');
@@ -4454,148 +3670,155 @@
                         return;
                     }
                     
-                    // Verificar se já existe convite pendente
-                    let invitations = [];
-                    if (driveFolderId) {
-                        try {
-                            const invitationsData = await carregarDoDrive(driveFolderId, 'invitations');
-                            if (invitationsData && Array.isArray(invitationsData)) {
-                                invitations = invitationsData;
-                            }
-                        } catch (e) {
-                            // Arquivo não existe ainda, criar novo
+                    // Gerar senha temporária (8 caracteres aleatórios)
+                    const tempPassword = Math.random().toString(36).slice(-8) + Math.random().toString(36).slice(-8).toUpperCase().slice(0, 1) + '!';
+                    
+                    // Criar usuário no Firebase Authentication
+                    let newUser;
+                    try {
+                        const userCredential = await createUserWithEmailAndPassword(auth, email, tempPassword);
+                        newUser = userCredential.user;
+                        console.log('✅ Usuário criado no Firebase:', newUser.uid);
+                    } catch (e) {
+                        if (e.code === 'auth/email-already-in-use') {
+                            setError('Este email já possui uma conta. O usuário pode fazer login diretamente.');
+                            setLoading(false);
+                            return;
+                        } else {
+                            throw e;
                         }
                     }
                     
-                    // Verificar se o email já tem convite
-                    if (invitations.find(inv => inv.email === email && inv.unidadeId === unidadeId)) {
-                        setError('Este email já possui um convite pendente para esta unidade.');
-                        setLoading(false);
-                        return;
-                    }
-                    
-                    // Gerar token único para o convite
-                    const token = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}_${email.replace(/[^a-zA-Z0-9]/g, '')}`;
-                    
-                    // Adicionar novo convite
-                    const newInvitation = {
+                    // Criar dados do usuário
+                    const newUserData = {
+                        id: newUser.uid,
                         email: email,
                         unidadeId: unidadeId,
-                        driveFolderId: driveFolderId,
-                        token: token, // Token único para o link de confirmação
-                        status: 'pending',
-                        invitedBy: 'admin',
-                        invitedAt: new Date().toISOString()
+                        role: 'user',
+                        status: 'approved', // Aprovado automaticamente pelo admin
+                        nome: email.split('@')[0],
+                        criadoEm: new Date().toISOString(),
+                        criadoPor: 'admin'
                     };
-                    invitations.push(newInvitation);
                     
-                    // Salvar convites no Drive
+                    // Salvar no localStorage
+                    localStorage.setItem(`user_${newUser.uid}`, JSON.stringify(newUserData));
+                    
+                    // Salvar no Drive
                     if (driveFolderId) {
-                        await salvarNoDrive(driveFolderId, 'invitations', invitations);
-                        
-                        // Compartilhar a pasta do Drive com o usuário convidado
                         try {
-                            const token = await getGoogleAccessToken();
-                            const shareResponse = await fetch(
-                                `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
-                                {
-                                    method: 'POST',
-                                    headers: {
-                                        'Authorization': `Bearer ${token}`,
-                                        'Content-Type': 'application/json',
-                                    },
-                                    body: JSON.stringify({
-                                        role: 'reader', // Apenas leitura
-                                        type: 'user',
-                                        emailAddress: email
-                                    })
-                                }
-                            );
+                            let usersData = [];
+                            const existingUsersData = await carregarDoDrive(driveFolderId, 'users_data');
+                            if (existingUsersData && Array.isArray(existingUsersData)) {
+                                usersData = existingUsersData;
+                            }
+                            usersData.push(newUserData);
+                            await salvarNoDrive(driveFolderId, 'users_data', usersData);
                             
-                            if (shareResponse.ok) {
-                                console.log('✅ Pasta compartilhada com sucesso com', email);
-                            } else {
-                                const errorText = await shareResponse.text();
-                                console.warn('⚠️ Erro ao compartilhar pasta:', shareResponse.status, errorText);
+                            // Compartilhar a pasta do Drive com o usuário
+                            try {
+                                const token = await getGoogleAccessToken();
+                                const shareResponse = await fetch(
+                                    `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
+                                    {
+                                        method: 'POST',
+                                        headers: {
+                                            'Authorization': `Bearer ${token}`,
+                                            'Content-Type': 'application/json',
+                                        },
+                                        body: JSON.stringify({
+                                            role: 'reader',
+                                            type: 'user',
+                                            emailAddress: email
+                                        })
+                                    }
+                                );
+                                
+                                if (shareResponse.ok) {
+                                    console.log('✅ Pasta compartilhada com sucesso com', email);
+                                }
+                            } catch (e) {
+                                console.warn('⚠️ Erro ao compartilhar pasta:', e);
                             }
                         } catch (e) {
-                            console.warn('⚠️ Erro ao compartilhar pasta do Drive:', e);
-                            // Continuar mesmo se o compartilhamento falhar
+                            console.warn("Erro ao salvar usuário no Drive:", e);
                         }
-                        
-                        // Gerar link de confirmação
-                        const confirmationLink = `${window.location.origin}${window.location.pathname}?invite=${token}&email=${encodeURIComponent(email)}`;
-                        
-                        // Preparar email com o link
-                        const emailSubject = encodeURIComponent('Convite para Sacramental LDS');
-                        const emailBody = encodeURIComponent(`Olá!
+                    }
+                    
+                    // Preparar email com credenciais
+                    const emailSubject = encodeURIComponent('Acesso ao Sistema Sacramental LDS');
+                    const emailBody = encodeURIComponent(`Olá!
 
-Você foi convidado para acessar o Sistema Sacramental LDS.
+Você foi cadastrado no Sistema Sacramental LDS.
 
-Para aceitar o convite e criar sua conta, clique no link abaixo:
+Suas credenciais de acesso são:
 
-${confirmationLink}
+Email: ${email}
+Senha: ${tempPassword}
 
 IMPORTANTE: 
-- Use o mesmo email do convite (${email}) para fazer login com Google
-- Se você não estiver logado com Google, será solicitado que faça login primeiro
-- Após fazer login, sua conta será criada automaticamente
+- Acesse: ${window.location.origin}${window.location.pathname}
+- Faça login com estas credenciais
+- Recomendamos alterar a senha após o primeiro acesso
 
 Atenciosamente,
 Equipe Sacramental LDS`);
-                        const mailtoLink = `mailto:${email}?subject=${emailSubject}&body=${emailBody}`;
-                        
-                        // Mostrar modal com o link
-                        const linkModal = document.createElement('div');
-                        linkModal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm';
-                        linkModal.innerHTML = `
-                            <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 p-6 animate-slide-up">
-                                <h3 class="text-xl font-bold text-gray-900 mb-4">Convite Criado com Sucesso!</h3>
-                                <p class="text-sm text-gray-600 mb-4">Envie este link para <strong>${email}</strong>:</p>
-                                <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-3 mb-4">
-                                    <input 
-                                        type="text" 
-                                        value="${confirmationLink}" 
-                                        readonly 
-                                        id="inviteLinkInput"
-                                        class="w-full bg-transparent text-xs text-gray-700 break-all outline-none"
-                                    />
+                    const mailtoLink = `mailto:${email}?subject=${emailSubject}&body=${emailBody}`;
+                    
+                    // Mostrar modal com credenciais
+                    const credentialsModal = document.createElement('div');
+                    credentialsModal.className = 'fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm';
+                    credentialsModal.innerHTML = `
+                        <div class="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 p-6 animate-slide-up">
+                            <h3 class="text-xl font-bold text-gray-900 mb-4">Usuário Criado com Sucesso!</h3>
+                            <p class="text-sm text-gray-600 mb-4">Credenciais para <strong>${email}</strong>:</p>
+                            <div class="bg-gray-50 border-2 border-gray-200 rounded-xl p-4 mb-4 space-y-2">
+                                <div>
+                                    <p class="text-xs text-gray-500 mb-1">Email:</p>
+                                    <p class="font-mono text-sm text-gray-900">${email}</p>
                                 </div>
-                                <p class="text-xs text-gray-500 mb-4">A pessoa precisará clicar no link e fazer login com Google para criar a conta automaticamente.</p>
-                                <div class="flex gap-3">
-                                    <button 
-                                        onclick="navigator.clipboard.writeText('${confirmationLink}').then(() => { this.textContent = 'Copiado!'; setTimeout(() => this.textContent = 'Copiar Link', 2000); })"
-                                        class="flex-1 bg-blue-600 text-white p-3 rounded-xl font-semibold hover:bg-blue-700 transition-all"
-                                    >
-                                        Copiar Link
-                                    </button>
-                                    <a 
-                                        href="${mailtoLink}" 
-                                        target="_blank"
-                                        class="flex-1 bg-green-600 text-white p-3 rounded-xl font-semibold hover:bg-green-700 transition-all text-center flex items-center justify-center"
-                                    >
-                                        Enviar Email
-                                    </a>
-                                    <button 
-                                        onclick="this.closest('.fixed').remove()"
-                                        class="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
-                                    >
-                                        Fechar
-                                    </button>
+                                <div>
+                                    <p class="text-xs text-gray-500 mb-1">Senha:</p>
+                                    <p class="font-mono text-sm text-gray-900 font-bold">${tempPassword}</p>
                                 </div>
                             </div>
-                        `;
-                        document.body.appendChild(linkModal);
-                        
-                        setSuccess(`Convite criado para ${email}. O link foi gerado e pode ser enviado por email.`);
-                    } else {
-                        setError('Erro: Drive não configurado. Não foi possível salvar o convite.');
-                    }
+                            <p class="text-xs text-amber-600 mb-4 font-semibold">⚠️ Copie estas credenciais antes de fechar! Elas serão enviadas por email.</p>
+                            <div class="flex gap-3">
+                                <button 
+                                    onclick="navigator.clipboard.writeText('Email: ${email}\\nSenha: ${tempPassword}').then(() => { this.textContent = 'Copiado!'; setTimeout(() => this.textContent = 'Copiar', 2000); })"
+                                    class="flex-1 bg-blue-600 text-white p-3 rounded-xl font-semibold hover:bg-blue-700 transition-all"
+                                >
+                                    Copiar
+                                </button>
+                                <a 
+                                    href="${mailtoLink}" 
+                                    target="_blank"
+                                    class="flex-1 bg-green-600 text-white p-3 rounded-xl font-semibold hover:bg-green-700 transition-all text-center flex items-center justify-center"
+                                >
+                                    Enviar Email
+                                </a>
+                                <button 
+                                    onclick="this.closest('.fixed').remove()"
+                                    class="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
+                                >
+                                    Fechar
+                                </button>
+                            </div>
+                        </div>
+                    `;
+                    document.body.appendChild(credentialsModal);
                     
+                    setSuccess(`Usuário ${email} criado com sucesso! As credenciais foram geradas.`);
                     setEmail('');
                 } catch (e) {
-                    console.error('Erro ao enviar convite:', e);
-                    setError('Erro ao enviar convite. Tente novamente.');
+                    console.error('Erro ao criar usuário:', e);
+                    if (e.code === 'auth/email-already-in-use') {
+                        setError('Este email já possui uma conta. O usuário pode fazer login diretamente.');
+                    } else if (e.code === 'auth/invalid-email') {
+                        setError('Email inválido. Verifique o formato do email.');
+                    } else {
+                        setError('Erro ao criar usuário. Tente novamente.');
+                    }
                 }
                 setLoading(false);
             };
@@ -4698,8 +3921,8 @@ Equipe Sacramental LDS`);
                             </div>
                         )}
 
-                        <form onSubmit={handleInvite} className="mb-6">
-                            <label className="block text-sm font-semibold text-gray-700 mb-2">Convidar Novo Usuário</label>
+                        <form onSubmit={handleCreateUser} className="mb-6">
+                            <label className="block text-sm font-semibold text-gray-700 mb-2">Criar Novo Usuário</label>
                             <div className="flex gap-2">
                                 <input
                                     type="email"
@@ -4717,7 +3940,7 @@ Equipe Sacramental LDS`);
                                     {loading ? '...' : <Plus size={20} />}
                                 </button>
                             </div>
-                            <p className="text-xs text-gray-500 mt-2">O usuário precisará criar uma conta com este email para acessar.</p>
+                            <p className="text-xs text-gray-500 mt-2">Uma senha temporária será gerada e enviada por email.</p>
                         </form>
 
                         {pendingUsers.length > 0 && (
