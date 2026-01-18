@@ -1987,45 +1987,45 @@
                                 }
                             }
                         }
-                            
-                            if (unidadeData) {
-                                setUnidadeInfo(unidadeData);
-                            }
-                            
-                            // Solicitar acesso ao Drive apenas para dados dos membros (não crítico)
-                            try {
-                                await solicitarAcessoDrive();
-                            } catch (e) {
-                                console.warn("Acesso ao Drive não disponível (não crítico para login)");
-                            }
-                            
-                            // Salvar no localStorage para compatibilidade
-                            try {
-                                localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
-                                if (unidadeData) {
-                                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
-                                }
-                            } catch (e) {
-                                console.warn("Erro ao salvar no localStorage:", e);
-                            }
-                            
-                            setAuthData({ 
-                                user, 
-                                unidadeId: userData.unidadeId, 
-                                role: userData.role,
-                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
-                                status: userData.status || 'approved'
-                            });
-                        } else {
-                            setAuthData(null);
+                        
+                        if (unidadeData) {
+                            setUnidadeInfo(unidadeData);
                         }
-                    } catch (e) {
-                        console.error("Erro geral ao buscar dados do usuário:", e);
+                        
+                        // Solicitar acesso ao Drive apenas para dados dos membros (não crítico)
+                        try {
+                            await solicitarAcessoDrive();
+                        } catch (e) {
+                            console.warn("Acesso ao Drive não disponível (não crítico para login)");
+                        }
+                        
+                        // Salvar no localStorage para compatibilidade
+                        try {
+                            localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                            if (unidadeData) {
+                                localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                            }
+                        } catch (e) {
+                            console.warn("Erro ao salvar no localStorage:", e);
+                        }
+                        
+                        setAuthData({ 
+                            user, 
+                            unidadeId: userData.unidadeId, 
+                            role: userData.role,
+                            driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
+                            status: userData.status || 'approved'
+                        });
+                    } else {
                         setAuthData(null);
-                    } finally {
-                        setLoading(false);
-                        if(overlay) overlay.style.display = 'none';
                     }
+                } catch (e) {
+                    console.error("Erro geral ao buscar dados do usuário:", e);
+                    setAuthData(null);
+                } finally {
+                    setLoading(false);
+                    if(overlay) overlay.style.display = 'none';
+                }
                 });
                 return () => unsub();
             }, []);
