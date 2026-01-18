@@ -62,9 +62,7 @@
       "imports": {
         "react": "https://esm.sh/react@18.2.0",
         "react-dom/client": "https://esm.sh/react-dom@18.2.0/client",
-        "firebase/app": "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js",
-        "firebase/auth": "https://www.gstatic.com/firebasejs/10.7.1/firebase-auth.js",
-        "firebase/firestore": "https://www.gstatic.com/firebasejs/10.7.1/firebase-firestore.js",
+        "pocketbase": "https://esm.sh/pocketbase@0.22.0",
         "lucide-react": "https://esm.sh/lucide-react@0.294.0?bundle"
       }
     }
@@ -124,32 +122,7 @@
         // Importar módulos (Babel processa isso)
         import React, { useState, useEffect, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
-        import { initializeApp } from 'firebase/app';
-        import { 
-            getAuth, 
-            createUserWithEmailAndPassword,
-            signInWithEmailAndPassword,
-            signInWithPopup,
-            GoogleAuthProvider,
-            signOut,
-            onAuthStateChanged 
-        } from 'firebase/auth';
-        import { 
-            getFirestore, 
-            collection, 
-            doc, 
-            getDoc,
-            getDocs,
-            setDoc, 
-            addDoc, 
-            updateDoc, 
-            deleteDoc, 
-            onSnapshot, 
-            query, 
-            where,
-            orderBy, 
-            serverTimestamp 
-        } from 'firebase/firestore';
+        import PocketBase from 'pocketbase';
         import { 
             Calendar, Users, UserPlus, Save, Trash2, AlertCircle, Check, 
             ChevronLeft, ChevronRight, ChevronDown, Search, BookOpen, 
@@ -159,145 +132,115 @@
             Printer, Smile, LogOut, Share2, Download
         } from 'lucide-react';
 
-        // --- CONFIGURAÇÃO DO FIREBASE ---
-        const firebaseConfig = {
-            apiKey: "AIzaSyDQ-4xLlMhPxC7Dgbd8MufXOiKb792IHaE",
-            authDomain: "sacramental-novo.firebaseapp.com",
-            projectId: "sacramental-novo",
-            storageBucket: "sacramental-novo.firebasestorage.app",
-            messagingSenderId: "911518938542",
-            appId: "1:911518938542:web:7684cc7a26f28ab146843f"
-        };
-
-        // Inicialização do Firebase (Auth + Firestore)
-        let app, auth, db;
-        try {
-            if (firebaseConfig.apiKey) {
-                app = initializeApp(firebaseConfig);
-                auth = getAuth(app);
-                try {
-                    db = getFirestore(app);
-                    console.log('✅ Firebase inicializado (Auth + Firestore)');
-                } catch (firestoreError) {
-                    console.error("⚠️ Erro ao inicializar Firestore:", firestoreError);
-                    console.warn("Continuando sem Firestore - algumas funcionalidades podem não funcionar");
-                    // Continuar sem Firestore - o app ainda pode funcionar
-                }
+        // --- CONFIGURAÇÃO DO POCKETBASE ---
+        // IMPORTANTE: Altere esta URL para a URL do seu servidor PocketBase
+        // Para desenvolvimento local: 'http://127.0.0.1:8090'
+        // Para produção: use a URL do seu servidor PocketBase hospedado
+        const POCKETBASE_URL = localStorage.getItem('pb_url') || 'http://127.0.0.1:8090';
+        
+        // Inicializar PocketBase
+        const pb = new PocketBase(POCKETBASE_URL);
+        
+        // Habilitar auto-cancelação de requests duplicadas
+        pb.autoCancellation(false);
+        
+        console.log('✅ PocketBase inicializado:', POCKETBASE_URL);
+        
+        // Configurar autenticação persistente (salva no localStorage automaticamente)
+        // O PocketBase já faz isso por padrão, mas garantimos que está ativo
+        pb.authStore.onChange((token, model) => {
+            if (model) {
+                console.log('✅ Usuário autenticado:', model.email);
+                // Salvar no localStorage para compatibilidade
+                localStorage.setItem('pb_auth', JSON.stringify({ token, model }));
             } else {
-                throw new Error("Chave de API do Firebase não encontrada.");
+                console.log('🔒 Usuário desautenticado');
+                localStorage.removeItem('pb_auth');
+            }
+        });
+        
+        // Tentar restaurar autenticação salva
+        try {
+            const savedAuth = localStorage.getItem('pb_auth');
+            if (savedAuth) {
+                const { token, model } = JSON.parse(savedAuth);
+                if (token && model) {
+                    pb.authStore.save(token, model);
+                }
             }
         } catch (e) {
-            console.error("Erro crítico no Firebase:", e);
-            // Não lançar erro - tentar continuar
-            console.warn("Tentando continuar sem Firebase completo...");
+            console.warn('⚠️ Erro ao restaurar autenticação:', e);
         }
 
-        // --- FUNÇÕES FIRESTORE (Para Unidades e Usuários) ---
+        // --- FUNÇÕES POCKETBASE (Para Unidades e Usuários) ---
         
-        // Salvar unidade no Firestore
+        // Salvar unidade no PocketBase
         const salvarUnidadeFirestore = async (unidadeData) => {
-            if (!db || typeof db === 'undefined') {
-                console.warn('⚠️ Firestore não disponível, usando localStorage');
-                localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
-                return unidadeData.id;
-            }
             try {
-                const unidadeRef = doc(db, 'unidades', unidadeData.id);
-                await setDoc(unidadeRef, {
-                    ...unidadeData,
-                    atualizadoEm: serverTimestamp()
-                }, { merge: true });
-                console.log('✅ Unidade salva no Firestore:', unidadeData.id);
-                // Também salvar no localStorage como backup
-                localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
-                return unidadeData.id;
+                const dataToSave = { ...unidadeData };
+                delete dataToSave.id; // PocketBase gera o ID
+                delete dataToSave.created;
+                delete dataToSave.updated;
+                
+                if (unidadeData.id) {
+                    // Atualizar unidade existente
+                    await pb.collection('unidades').update(unidadeData.id, dataToSave);
+                    console.log('✅ Unidade atualizada no PocketBase:', unidadeData.id);
+                    localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
+                    return unidadeData.id;
+                } else {
+                    // Criar nova unidade
+                    const record = await pb.collection('unidades').create(dataToSave);
+                    console.log('✅ Unidade criada no PocketBase:', record.id);
+                    localStorage.setItem(`unidade_${record.id}`, JSON.stringify({ id: record.id, ...record }));
+                    return record.id;
+                }
             } catch (e) {
-                console.error('❌ Erro ao salvar unidade no Firestore:', e);
+                console.error('❌ Erro ao salvar unidade no PocketBase:', e);
                 // Fallback para localStorage
-                localStorage.setItem(`unidade_${unidadeData.id}`, JSON.stringify(unidadeData));
-                return unidadeData.id;
+                const id = unidadeData.id || 'unidade_' + Date.now();
+                localStorage.setItem(`unidade_${id}`, JSON.stringify({ ...unidadeData, id }));
+                return id;
             }
         };
         
-        // Carregar unidade do Firestore
+        // Carregar unidade do PocketBase
         const carregarUnidadeFirestore = async (unidadeId) => {
-            if (!db || typeof db === 'undefined') {
-                // Fallback para localStorage
-                const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
-                if (unidadeDataStr) {
-                    return JSON.parse(unidadeDataStr);
-                }
-                return null;
-            }
-            
-            // Verificar se está offline - usar localStorage imediatamente
-            if (!navigator.onLine) {
-                console.warn('⚠️ Sem conexão, usando localStorage');
-                const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
-                if (unidadeDataStr) {
-                    return JSON.parse(unidadeDataStr);
-                }
-                return null;
-            }
-            
-            try {
-                const unidadeRef = doc(db, 'unidades', unidadeId);
-                const unidadeSnap = await getDoc(unidadeRef);
-                if (unidadeSnap.exists()) {
-                    const data = { id: unidadeSnap.id, ...unidadeSnap.data() };
-                    // Salvar no localStorage como cache
-                    localStorage.setItem(`unidade_${unidadeId}`, JSON.stringify(data));
-                    return data;
-                }
-            } catch (e) {
-                // Se for erro de offline, usar localStorage silenciosamente
-                if (e.message && (e.message.includes('offline') || e.message.includes('Failed to get document'))) {
-                    console.warn('⚠️ Firestore offline, usando localStorage');
-                } else {
-                    console.error('❌ Erro ao carregar unidade do Firestore:', e);
-                }
-            }
-            
-            // Fallback para localStorage
+            // Verificar localStorage primeiro (mais rápido)
             const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
-            if (unidadeDataStr) {
-                return JSON.parse(unidadeDataStr);
+            
+            try {
+                // Tentar carregar do PocketBase
+                const record = await pb.collection('unidades').getOne(unidadeId);
+                const data = { id: record.id, ...record };
+                // Salvar no localStorage como cache
+                localStorage.setItem(`unidade_${unidadeId}`, JSON.stringify(data));
+                return data;
+            } catch (e) {
+                // Se não encontrou ou erro, usar localStorage como fallback
+                if (unidadeDataStr) {
+                    console.warn('⚠️ Usando cache do localStorage para unidade:', unidadeId);
+                    return JSON.parse(unidadeDataStr);
+                }
+                return null;
             }
-            return null;
         };
         
-        // Buscar todas as unidades do Firestore
+        // Buscar todas as unidades do PocketBase
         const buscarTodasUnidadesFirestore = async () => {
-            if (!db || typeof db === 'undefined') {
-                console.warn('⚠️ Firestore não disponível, buscando no localStorage');
-                // Buscar no localStorage como fallback
-                const unidades = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith('unidade_')) {
-                        try {
-                            const unidadeData = JSON.parse(localStorage.getItem(key));
-                            if (unidadeData && unidadeData.nome) {
-                                unidades.push(unidadeData);
-                            }
-                        } catch (e) {
-                            // Ignorar erros
-                        }
-                    }
-                }
-                return unidades;
-            }
             try {
-                const unidadesRef = collection(db, 'unidades');
-                const unidadesSnap = await getDocs(unidadesRef);
-                const unidades = [];
-                unidadesSnap.forEach((doc) => {
-                    unidades.push({ id: doc.id, ...doc.data() });
+                const records = await pb.collection('unidades').getFullList({
+                    sort: '-created',
                 });
-                console.log(`✅ ${unidades.length} unidades encontradas no Firestore`);
+                const unidades = records.map(record => ({ id: record.id, ...record }));
+                console.log(`✅ ${unidades.length} unidades encontradas no PocketBase`);
+                // Atualizar cache do localStorage
+                unidades.forEach(unidade => {
+                    localStorage.setItem(`unidade_${unidade.id}`, JSON.stringify(unidade));
+                });
                 return unidades;
             } catch (e) {
-                console.error('❌ Erro ao buscar unidades do Firestore:', e);
+                console.error('❌ Erro ao buscar unidades do PocketBase:', e);
                 // Fallback para localStorage
                 const unidades = [];
                 for (let i = 0; i < localStorage.length; i++) {
@@ -317,105 +260,69 @@
             }
         };
         
-        // Salvar usuário no Firestore
+        // Salvar usuário no PocketBase
         const salvarUsuarioFirestore = async (userId, userData) => {
-            if (!db || typeof db === 'undefined') {
-                console.warn('⚠️ Firestore não disponível, usando localStorage');
-                localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
-                return;
-            }
             try {
-                const userRef = doc(db, 'usuarios', userId);
-                await setDoc(userRef, {
-                    ...userData,
-                    atualizadoEm: serverTimestamp()
-                }, { merge: true });
-                console.log('✅ Usuário salvo no Firestore:', userId);
-                // Também salvar no localStorage como backup
-                localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
-            } catch (e) {
-                console.error('❌ Erro ao salvar usuário no Firestore:', e);
-                // Fallback para localStorage
-                localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
-            }
-        };
-        
-        // Carregar usuário do Firestore
-        const carregarUsuarioFirestore = async (userId) => {
-            if (!db || typeof db === 'undefined') {
-                // Fallback para localStorage
-                const userDataStr = localStorage.getItem(`user_${userId}`);
-                if (userDataStr) {
-                    return JSON.parse(userDataStr);
-                }
-                return null;
-            }
-            
-            // Verificar se está offline - usar localStorage imediatamente
-            if (!navigator.onLine) {
-                console.warn('⚠️ Sem conexão, usando localStorage');
-                const userDataStr = localStorage.getItem(`user_${userId}`);
-                if (userDataStr) {
-                    return JSON.parse(userDataStr);
-                }
-                return null;
-            }
-            
-            try {
-                const userRef = doc(db, 'usuarios', userId);
-                const userSnap = await getDoc(userRef);
-                if (userSnap.exists()) {
-                    const data = { id: userSnap.id, ...userSnap.data() };
-                    // Salvar no localStorage como cache
-                    localStorage.setItem(`user_${userId}`, JSON.stringify(data));
-                    return data;
-                }
-            } catch (e) {
-                // Se for erro de offline, usar localStorage silenciosamente
-                if (e.message && (e.message.includes('offline') || e.message.includes('Failed to get document'))) {
-                    console.warn('⚠️ Firestore offline, usando localStorage');
-                } else {
-                    console.error('❌ Erro ao carregar usuário do Firestore:', e);
-                }
-            }
-            
-            // Fallback para localStorage
-            const userDataStr = localStorage.getItem(`user_${userId}`);
-            if (userDataStr) {
-                return JSON.parse(userDataStr);
-            }
-            return null;
-        };
-        
-        // Buscar usuários de uma unidade
-        const buscarUsuariosUnidadeFirestore = async (unidadeId) => {
-            if (!db || typeof db === 'undefined') {
-                // Fallback para localStorage
-                const usuarios = [];
-                for (let i = 0; i < localStorage.length; i++) {
-                    const key = localStorage.key(i);
-                    if (key && key.startsWith('user_')) {
-                        try {
-                            const userData = JSON.parse(localStorage.getItem(key));
-                            if (userData.unidadeId === unidadeId) {
-                                usuarios.push({ id: key.replace('user_', ''), ...userData });
-                            }
-                        } catch (e) {
-                            // Ignorar erros
-                        }
+                const dataToSave = { ...userData };
+                delete dataToSave.id;
+                delete dataToSave.created;
+                delete dataToSave.updated;
+                
+                try {
+                    // Tentar atualizar usuário existente
+                    await pb.collection('usuarios').update(userId, dataToSave);
+                    console.log('✅ Usuário atualizado no PocketBase:', userId);
+                } catch (updateError) {
+                    // Se não existe, criar novo
+                    if (updateError.status === 404 || updateError.status === 0) {
+                        const record = await pb.collection('usuarios').create({
+                            ...dataToSave,
+                            id: userId
+                        });
+                        console.log('✅ Usuário criado no PocketBase:', record.id);
+                    } else {
+                        throw updateError;
                     }
                 }
-                return usuarios;
+                // Salvar no localStorage como backup
+                localStorage.setItem(`user_${userId}`, JSON.stringify({ ...userData, id: userId }));
+            } catch (e) {
+                console.error('❌ Erro ao salvar usuário no PocketBase:', e);
+                // Fallback para localStorage
+                localStorage.setItem(`user_${userId}`, JSON.stringify({ ...userData, id: userId }));
             }
+        };
+        
+        // Carregar usuário do PocketBase
+        const carregarUsuarioFirestore = async (userId) => {
+            // Verificar localStorage primeiro (mais rápido)
+            const userDataStr = localStorage.getItem(`user_${userId}`);
+            
             try {
-                const usuariosRef = collection(db, 'usuarios');
-                const q = query(usuariosRef, where('unidadeId', '==', unidadeId));
-                const usuariosSnap = await getDocs(q);
-                const usuarios = [];
-                usuariosSnap.forEach((doc) => {
-                    usuarios.push({ id: doc.id, ...doc.data() });
+                // Tentar carregar do PocketBase
+                const record = await pb.collection('usuarios').getOne(userId);
+                const data = { id: record.id, ...record };
+                // Salvar no localStorage como cache
+                localStorage.setItem(`user_${userId}`, JSON.stringify(data));
+                return data;
+            } catch (e) {
+                // Se não encontrou ou erro, usar localStorage como fallback
+                if (userDataStr) {
+                    console.warn('⚠️ Usando cache do localStorage para usuário:', userId);
+                    return JSON.parse(userDataStr);
+                }
+                return null;
+            }
+        };
+        
+        // Buscar usuários de uma unidade do PocketBase
+        const buscarUsuariosUnidadeFirestore = async (unidadeId) => {
+            try {
+                const records = await pb.collection('usuarios').getFullList({
+                    filter: `unidadeId = "${unidadeId}"`,
+                    sort: '-created',
                 });
-                return usuarios;
+                return records.map(record => ({ id: record.id, ...record }));
             } catch (e) {
                 console.error('❌ Erro ao buscar usuários da unidade:', e);
                 // Fallback para localStorage
@@ -437,26 +344,16 @@
             }
         };
         
-        // Salvar solicitação pendente no Firestore
+        // Salvar solicitação pendente no PocketBase
         const salvarSolicitacaoFirestore = async (solicitacao) => {
-            if (!db || typeof db === 'undefined') {
-                console.warn('⚠️ Firestore não disponível, usando localStorage');
-                // Salvar no localStorage como fallback
-                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
-                solicitacoes.push({ ...solicitacao, status: 'pending', criadoEm: new Date().toISOString() });
-                localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
-                return;
-            }
             try {
-                const solicitacoesRef = collection(db, 'solicitacoes');
-                await addDoc(solicitacoesRef, {
+                const record = await pb.collection('solicitacoes').create({
                     ...solicitacao,
                     status: 'pending',
-                    criadoEm: serverTimestamp()
                 });
-                console.log('✅ Solicitação salva no Firestore');
+                console.log('✅ Solicitação salva no PocketBase:', record.id);
             } catch (e) {
-                console.error('❌ Erro ao salvar solicitação no Firestore:', e);
+                console.error('❌ Erro ao salvar solicitação no PocketBase:', e);
                 // Fallback para localStorage
                 const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
                 solicitacoes.push({ ...solicitacao, status: 'pending', criadoEm: new Date().toISOString() });
@@ -464,26 +361,14 @@
             }
         };
         
-        // Buscar solicitações pendentes de uma unidade
+        // Buscar solicitações pendentes de uma unidade no PocketBase
         const buscarSolicitacoesPendentesFirestore = async (unidadeId) => {
-            if (!db || typeof db === 'undefined') {
-                // Fallback para localStorage
-                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
-                return solicitacoes.filter(s => s.unidadeId === unidadeId && s.status === 'pending');
-            }
             try {
-                const solicitacoesRef = collection(db, 'solicitacoes');
-                const q = query(
-                    solicitacoesRef, 
-                    where('unidadeId', '==', unidadeId),
-                    where('status', '==', 'pending')
-                );
-                const solicitacoesSnap = await getDocs(q);
-                const solicitacoes = [];
-                solicitacoesSnap.forEach((doc) => {
-                    solicitacoes.push({ id: doc.id, ...doc.data() });
+                const records = await pb.collection('solicitacoes').getFullList({
+                    filter: `unidadeId = "${unidadeId}" && status = "pending"`,
+                    sort: '-created',
                 });
-                return solicitacoes;
+                return records.map(record => ({ id: record.id, ...record }));
             } catch (e) {
                 console.error('❌ Erro ao buscar solicitações:', e);
                 // Fallback para localStorage
@@ -492,27 +377,13 @@
             }
         };
         
-        // Atualizar status de solicitação
+        // Atualizar status de solicitação no PocketBase
         const atualizarSolicitacaoFirestore = async (solicitacaoId, status) => {
-            if (!db || typeof db === 'undefined') {
-                console.warn('⚠️ Firestore não disponível, usando localStorage');
-                // Atualizar no localStorage como fallback
-                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
-                const index = solicitacoes.findIndex(s => s.id === solicitacaoId || s.userId === solicitacaoId);
-                if (index >= 0) {
-                    solicitacoes[index].status = status;
-                    solicitacoes[index].atualizadoEm = new Date().toISOString();
-                    localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
-                }
-                return;
-            }
             try {
-                const solicitacaoRef = doc(db, 'solicitacoes', solicitacaoId);
-                await updateDoc(solicitacaoRef, {
+                await pb.collection('solicitacoes').update(solicitacaoId, {
                     status: status,
-                    atualizadoEm: serverTimestamp()
                 });
-                console.log('✅ Solicitação atualizada no Firestore');
+                console.log('✅ Solicitação atualizada no PocketBase');
             } catch (e) {
                 console.error('❌ Erro ao atualizar solicitação:', e);
                 // Fallback para localStorage
@@ -1166,20 +1037,28 @@
                 setLoading(true);
                 setError('');
                 try {
-                    const userCredential = await signInWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
+                    // Autenticar com PocketBase
+                    const authData = await pb.collection('usuarios').authWithPassword(email, password);
+                    const user = authData.record;
                     
-                    console.log('✅ Login com email/senha realizado. UID:', user.uid, 'Email:', user.email);
+                    console.log('✅ Login com email/senha realizado. ID:', user.id, 'Email:', user.email);
+                    
+                    // Criar objeto compatível com formato anterior
+                    const userObj = {
+                        uid: user.id,
+                        email: user.email,
+                        displayName: user.nome || user.email.split('@')[0]
+                    };
                     
                     // Processar login (verificar se tem unidade ou mostrar seleção)
-                    await processarLoginSucesso(user);
+                    await processarLoginSucesso(userObj);
                 } catch (e) {
                     console.error('Erro ao fazer login:', e);
-                    if (e.code === 'auth/user-not-found' || e.message.includes('user-not-found')) {
+                    if (e.status === 400 || e.message?.includes('Invalid login')) {
+                        setError('Email ou senha incorretos. Verifique suas credenciais.');
+                    } else if (e.status === 404) {
                         setError('Email não cadastrado. Crie uma conta primeiro.');
-                    } else if (e.code === 'auth/wrong-password' || e.message.includes('wrong-password')) {
-                        setError('Senha incorreta. Verifique sua senha.');
-                    } else if (e.code === 'auth/invalid-email') {
+                    } else if (e.message?.includes('invalid')) {
                         setError('Email inválido. Verifique o formato do email.');
                     } else {
                         setError('Erro ao fazer login. Tente novamente.');
@@ -1274,19 +1153,27 @@
                 }
             };
 
-            // Função para processar login/cadastro bem-sucedido (usando Firestore)
+            // Função para processar login/cadastro bem-sucedido (usando PocketBase)
             const processarLoginSucesso = async (user) => {
                 setLoading(true);
                 try {
-                    // Buscar dados do usuário no Firestore
+                    // Buscar dados do usuário no PocketBase
                     let userData = await carregarUsuarioFirestore(user.uid);
                     
-                    // Se não encontrou no Firestore, verificar localStorage (migração)
+                    // Se não encontrou no PocketBase, usar dados do authStore
+                    if (!userData && pb.authStore.model) {
+                        userData = {
+                            id: pb.authStore.model.id,
+                            ...pb.authStore.model
+                        };
+                    }
+                    
+                    // Se ainda não encontrou, verificar localStorage (migração)
                     if (!userData) {
                         const userDataStr = localStorage.getItem(`user_${user.uid}`);
                         if (userDataStr) {
                             userData = JSON.parse(userDataStr);
-                            // Migrar para Firestore
+                            // Migrar para PocketBase
                             if (userData) {
                                 await salvarUsuarioFirestore(user.uid, userData);
                             }
@@ -1337,38 +1224,46 @@
                 setLoading(true);
                 setError('');
                 try {
-                    const userCredential = await createUserWithEmailAndPassword(auth, email, password);
-                    const user = userCredential.user;
-                    
-                    console.log('✅ Cadastro realizado. UID:', user.uid, 'Email:', user.email);
-                    
-                    // Salvar dados básicos do usuário no Firestore
+                    // Criar usuário no PocketBase (isso cria o registro na coleção 'usuarios')
+                    // IMPORTANTE: A coleção 'usuarios' precisa estar configurada para permitir criação pública
+                    // ou você precisa criar o usuário via Admin API
                     const userData = {
-                        id: user.uid,
-                        email: user.email,
-                        nome: user.email.split('@')[0],
-                        criadoEm: new Date().toISOString()
+                        email: email,
+                        password: password,
+                        passwordConfirm: password,
+                        nome: email.split('@')[0],
+                        status: 'pending'
                     };
                     
-                    await salvarUsuarioFirestore(user.uid, userData);
+                    const record = await pb.collection('usuarios').create(userData);
+                    console.log('✅ Cadastro realizado. ID:', record.id, 'Email:', record.email);
                     
-                    // Também salvar no localStorage para compatibilidade
-                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                    // Autenticar automaticamente após criar conta
+                    const authData = await pb.collection('usuarios').authWithPassword(email, password);
+                    const user = authData.record;
+                    
+                    // Criar objeto compatível
+                    const userObj = {
+                        uid: user.id,
+                        email: user.email,
+                        displayName: user.nome || user.email.split('@')[0]
+                    };
+                    
+                    // Salvar no localStorage para compatibilidade
+                    localStorage.setItem(`user_${user.id}`, JSON.stringify({ id: user.id, ...user }));
                     
                     // Processar login (buscar unidades)
-                    await processarLoginSucesso(user);
+                    await processarLoginSucesso(userObj);
                 } catch (e) {
                     console.error('Erro ao criar conta:', e);
-                    if (e.code === 'auth/email-already-in-use') {
+                    if (e.status === 400 || e.message?.includes('already exists') || e.message?.includes('duplicate')) {
                         setError('Este email já está cadastrado. Faça login em vez de cadastrar.');
-                    } else if (e.code === 'auth/weak-password') {
-                        setError('A senha deve ter pelo menos 6 caracteres.');
-                    } else if (e.code === 'auth/invalid-email') {
+                    } else if (e.message?.includes('password') || e.message?.includes('weak')) {
+                        setError('A senha deve ter pelo menos 8 caracteres.');
+                    } else if (e.message?.includes('invalid') || e.message?.includes('email')) {
                         setError('Email inválido.');
-                    } else if (e.code === 'auth/operation-not-allowed') {
-                        setError('Operação não permitida. Verifique as configurações do Firebase.');
-                    } else if (e.code === 'auth/network-request-failed') {
-                        setError('Erro de conexão. Verifique sua internet.');
+                    } else if (e.message?.includes('network') || e.status === 0) {
+                        setError('Erro de conexão. Verifique sua internet e se o servidor PocketBase está rodando.');
                     } else {
                         setError(`Erro ao criar conta: ${e.message || 'Tente novamente.'}`);
                     }
@@ -1415,7 +1310,7 @@
                         } catch (e) {
                             console.error('Erro ao criar unidade:', e);
                             setError('Erro ao criar unidade. Tente novamente.');
-                            await signOut(auth);
+                            pb.authStore.clear();
                         }
                         setLoading(false);
                         return;
@@ -1500,14 +1395,21 @@
                 setError('');
                 try {
                     // Verificar se o usuário está logado
-                    const currentUser = auth.currentUser;
+                    const currentUser = pb.authStore.model;
                     if (!currentUser) {
                         setError('Você precisa estar logado para criar uma unidade. Faça login primeiro.');
                         setLoading(false);
                         return;
                     }
                     
-                    await criarUnidadeComGoogle(currentUser, unidadeNome.trim());
+                    // Criar objeto compatível
+                    const userObj = {
+                        uid: currentUser.id,
+                        email: currentUser.email,
+                        displayName: currentUser.nome || currentUser.email?.split('@')[0]
+                    };
+                    
+                    await criarUnidadeComGoogle(userObj, unidadeNome.trim());
                 } catch (e) {
                     console.error('Erro ao criar unidade:', e);
                     setError('Erro ao criar unidade. Tente novamente.');
@@ -1585,7 +1487,7 @@
                     
                     setError(errorMessage);
                     try {
-                        await signOut(auth);
+                        pb.authStore.clear();
                     } catch (signOutError) {
                         console.warn('Erro ao fazer logout:', signOutError);
                     }
@@ -1825,7 +1727,7 @@
                                             setAvailableUnits([]);
                                             setError('');
                                             setSuccess('');
-                                            signOut(auth);
+                                            pb.authStore.clear();
                                         }}
                                         className="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
                                     >
@@ -1873,7 +1775,7 @@
                                             setShowUnidadeModal(false);
                                             setPendingGoogleUser(null);
                                             setTempUnidadeNome('');
-                                            signOut(auth);
+                                            pb.authStore.clear();
                                         }}
                                         className="flex-1 bg-gray-200 text-gray-700 p-3 rounded-xl font-semibold hover:bg-gray-300 transition-all"
                                     >
@@ -1915,13 +1817,14 @@
             const [showUserManager, setShowUserManager] = useState(false);
 
 
-            // Auth
+            // Auth - usar PocketBase authStore ao invés de Firebase onAuthStateChanged
+            // Auth - usar PocketBase authStore ao invés de Firebase onAuthStateChanged
             useEffect(() => {
-                if (!auth) return;
-                
                 const overlay = document.getElementById('loading-overlay');
                 
-                const unsub = onAuthStateChanged(auth, async (user) => {
+                // Listener para mudanças no authStore do PocketBase
+                const authChangeHandler = async () => {
+                    const user = pb.authStore.model;
                     if (!user) {
                         setAuthData(null);
                         setLoading(false);
@@ -1929,105 +1832,118 @@
                         return;
                     }
                     
-                    // Buscar dados do usuário (priorizar localStorage se offline)
-                    let userData = null;
-                    
-                    // Primeiro tentar localStorage (mais rápido e funciona offline)
-                    const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                    if (userDataStr) {
-                        try {
-                            userData = JSON.parse(userDataStr);
-                        } catch (e) {
-                            console.error("Erro ao parsear dados do usuário:", e);
-                        }
-                    }
-                    
-                    // Se não encontrou no localStorage, tentar Firestore (apenas se online)
-                    if (!userData && navigator.onLine) {
-                        try {
-                            userData = await carregarUsuarioFirestore(user.uid);
-                            // Se encontrou no Firestore, salvar no localStorage
-                            if (userData) {
-                                localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
-                            }
-                        } catch (e) {
-                            // Ignorar erros de offline silenciosamente
-                            if (!e.message || (!e.message.includes('offline') && !e.message.includes('Failed to get document'))) {
-                                console.warn("Erro ao buscar usuário do Firestore:", e);
-                            }
-                        }
-                    }
-                    
-                    if (userData && userData.unidadeId) {
-                        // Buscar info da unidade (priorizar localStorage se offline)
-                        let unidadeData = null;
+                    try {
+                        // Buscar dados do usuário (priorizar localStorage se offline)
+                        let userData = null;
                         
-                        // Primeiro tentar localStorage
-                        const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
-                        if (unidadeDataStr) {
+                        // Primeiro tentar localStorage (mais rápido e funciona offline)
+                        const userDataStr = localStorage.getItem(`user_${user.id}`);
+                        if (userDataStr) {
                             try {
-                                unidadeData = JSON.parse(unidadeDataStr);
+                                userData = JSON.parse(userDataStr);
                             } catch (e) {
-                                console.error("Erro ao parsear dados da unidade:", e);
+                                console.error("Erro ao parsear dados do usuário:", e);
                             }
                         }
                         
-                        // Se não encontrou no localStorage, tentar Firestore (apenas se online)
-                        if (!unidadeData && navigator.onLine) {
+                        // Se não encontrou no localStorage, tentar PocketBase
+                        if (!userData) {
                             try {
-                                unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
-                                // Se encontrou no Firestore, salvar no localStorage
-                                if (unidadeData) {
-                                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                                userData = await carregarUsuarioFirestore(user.id);
+                                // Se encontrou no PocketBase, salvar no localStorage
+                                if (userData) {
+                                    localStorage.setItem(`user_${user.id}`, JSON.stringify(userData));
                                 }
                             } catch (e) {
-                                // Ignorar erros de offline silenciosamente
-                                if (!e.message || (!e.message.includes('offline') && !e.message.includes('Failed to get document'))) {
-                                    console.warn("Erro ao buscar unidade do Firestore:", e);
-                                }
+                                // Se erro, usar dados do authStore
+                                userData = {
+                                    id: user.id,
+                                    email: user.email,
+                                    nome: user.nome || user.email?.split('@')[0],
+                                    ...user
+                                };
                             }
                         }
                         
-                        if (unidadeData) {
-                            setUnidadeInfo(unidadeData);
-                        }
-                        
-                        // Solicitar acesso ao Drive apenas para dados dos membros (não crítico)
-                        try {
-                            await solicitarAcessoDrive();
-                        } catch (e) {
-                            console.warn("Acesso ao Drive não disponível (não crítico para login)");
-                        }
-                        
-                        // Salvar no localStorage para compatibilidade
-                        try {
-                            localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                        if (userData && userData.unidadeId) {
+                            // Buscar info da unidade (priorizar localStorage se offline)
+                            let unidadeData = null;
+                            
+                            // Primeiro tentar localStorage
+                            const unidadeDataStr = localStorage.getItem(`unidade_${user.id}`);
+                            if (unidadeDataStr) {
+                                try {
+                                    unidadeData = JSON.parse(unidadeDataStr);
+                                } catch (e) {
+                                    console.error("Erro ao parsear dados da unidade:", e);
+                                }
+                            }
+                            
+                            // Se não encontrou no localStorage, tentar PocketBase
+                            if (!unidadeData) {
+                                try {
+                                    unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
+                                    // Se encontrou no PocketBase, salvar no localStorage
+                                    if (unidadeData) {
+                                        localStorage.setItem(`unidade_${user.id}`, JSON.stringify(unidadeData));
+                                    }
+                                } catch (e) {
+                                    console.warn("Erro ao buscar unidade do PocketBase:", e);
+                                }
+                            }
+                            
                             if (unidadeData) {
-                                localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                                setUnidadeInfo(unidadeData);
                             }
-                        } catch (e) {
-                            console.warn("Erro ao salvar no localStorage:", e);
+                            
+                            // Solicitar acesso ao Drive apenas para dados dos membros (não crítico)
+                            try {
+                                await solicitarAcessoDrive();
+                            } catch (e) {
+                                console.warn("Acesso ao Drive não disponível (não crítico para login)");
+                            }
+                            
+                            // Salvar no localStorage para compatibilidade
+                            try {
+                                localStorage.setItem(`user_${user.id}`, JSON.stringify(userData));
+                                if (unidadeData) {
+                                    localStorage.setItem(`unidade_${user.id}`, JSON.stringify(unidadeData));
+                                }
+                            } catch (e) {
+                                console.warn("Erro ao salvar no localStorage:", e);
+                            }
+                            
+                            // Criar objeto user compatível
+                            const userObj = {
+                                uid: user.id,
+                                email: user.email,
+                                displayName: user.nome || user.email?.split('@')[0]
+                            };
+                            
+                            setAuthData({ 
+                                user: userObj, 
+                                unidadeId: userData.unidadeId, 
+                                role: userData.role,
+                                driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
+                                status: userData.status || 'approved'
+                            });
+                        } else {
+                            setAuthData(null);
                         }
-                        
-                        setAuthData({ 
-                            user, 
-                            unidadeId: userData.unidadeId, 
-                            role: userData.role,
-                            driveFolderId: unidadeData?.driveFolderId || userData.unidadeId,
-                            status: userData.status || 'approved'
-                        });
-                    } else {
+                    } catch (e) {
+                        console.error("Erro geral ao buscar dados do usuário:", e);
                         setAuthData(null);
+                    } finally {
+                        setLoading(false);
+                        if(overlay) overlay.style.display = 'none';
                     }
-                } catch (e) {
-                    console.error("Erro geral ao buscar dados do usuário:", e);
-                    setAuthData(null);
-                } finally {
-                    setLoading(false);
-                    if(overlay) overlay.style.display = 'none';
-                }
-                });
-                return () => unsub();
+                };
+                
+                // Executar imediatamente para verificar autenticação atual
+                authChangeHandler();
+                
+                // Adicionar listener para mudanças futuras
+                pb.authStore.onChange(authChangeHandler);
             }, []);
 
             // Buscar info da unidade e usuários (do localStorage e Drive)
@@ -2177,8 +2093,9 @@
 
             const handleLogout = async () => {
                 try {
-                    await signOut(auth);
+                    pb.authStore.clear();
                     setAuthData(null);
+                    localStorage.removeItem('pb_auth');
                 } catch (e) {
                     console.error("Erro ao fazer logout:", e);
                 }
