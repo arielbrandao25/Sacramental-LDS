@@ -71,7 +71,7 @@
     </script>
 
     <!-- Babel para JSX -->
-    <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+    <script src="https://unpkg.com/@babel/standalone/babel.min.js" onload="window.babelLoaded = true"></script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 font-sans text-slate-800">
     
@@ -89,28 +89,39 @@
     <script type="text/babel" data-type="module">
         console.log('🚀 Script iniciado...');
         
-        // Tratamento de erros global
-        window.addEventListener('error', (e) => {
-            console.error('❌ Erro global capturado:', e.error);
+        // Função para mostrar erro na tela
+        function mostrarErro(mensagem, stack) {
+            const loadingOverlay = document.getElementById('loading-overlay');
+            if (loadingOverlay) {
+                loadingOverlay.style.display = 'none';
+            }
             const rootElement = document.getElementById('root');
-            if (rootElement && !rootElement.innerHTML) {
+            if (rootElement) {
                 rootElement.innerHTML = `
-                    <div style="padding: 40px; text-align: center; font-family: sans-serif;">
-                        <h2 style="color: #b91c1c; margin-bottom: 20px;">Erro ao carregar o aplicativo</h2>
-                        <p style="color: #7f1d1d; margin-bottom: 10px;">${e.error?.message || 'Erro desconhecido'}</p>
-                        <pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; max-width: 800px; margin: 20px auto;">${e.error?.stack || ''}</pre>
+                    <div style="padding: 40px; text-align: center; font-family: sans-serif; max-width: 800px; margin: 50px auto;">
+                        <h2 style="color: #b91c1c; margin-bottom: 20px; font-size: 24px;">Erro ao carregar o aplicativo</h2>
+                        <p style="color: #7f1d1d; margin-bottom: 15px; font-size: 16px;">${mensagem || 'Erro desconhecido'}</p>
+                        ${stack ? `<pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; font-size: 12px; color: #991b1b; margin: 20px 0;">${stack}</pre>` : ''}
                         <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
                             Recarregar Página
                         </button>
                     </div>
                 `;
             }
+        }
+        
+        // Tratamento de erros global
+        window.addEventListener('error', (e) => {
+            console.error('❌ Erro global capturado:', e.error);
+            mostrarErro(e.error?.message || e.message || 'Erro desconhecido', e.error?.stack || e.stack);
         });
         
         window.addEventListener('unhandledrejection', (e) => {
             console.error('❌ Promise rejeitada não tratada:', e.reason);
+            mostrarErro('Erro ao carregar módulos: ' + (e.reason?.message || String(e.reason)), e.reason?.stack);
         });
         
+        // Importar módulos (Babel processa isso)
         import React, { useState, useEffect, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
@@ -4910,18 +4921,27 @@ Equipe Sacramental LDS`);
             }
         }
 
-        // Renderização
+        // Renderização - aguardar módulos carregarem
         console.log('📋 Preparando renderização...');
         
-        // Aguardar um pouco para garantir que tudo está carregado
-        setTimeout(() => {
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', initApp);
-            } else {
-                // DOM já está pronto
-                initApp();
-            }
-        }, 200);
+        // Aguardar módulos ES6 carregarem antes de inicializar
+        Promise.all([
+            Promise.resolve(), // React já foi importado
+            new Promise(resolve => {
+                // Aguardar um pouco para garantir que todos os módulos foram processados
+                if (document.readyState === 'loading') {
+                    document.addEventListener('DOMContentLoaded', () => setTimeout(resolve, 300));
+                } else {
+                    setTimeout(resolve, 300);
+                }
+            })
+        ]).then(() => {
+            console.log('✅ Módulos prontos, inicializando app...');
+            initApp();
+        }).catch((e) => {
+            console.error('❌ Erro ao aguardar inicialização:', e);
+            mostrarErro('Erro ao inicializar: ' + (e.message || String(e)), e.stack);
+        });
     </script>
 </body>
 </html>
