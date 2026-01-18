@@ -87,6 +87,30 @@
     <div id="root"></div>
 
     <script type="text/babel" data-type="module">
+        console.log('🚀 Script iniciado...');
+        
+        // Tratamento de erros global
+        window.addEventListener('error', (e) => {
+            console.error('❌ Erro global capturado:', e.error);
+            const rootElement = document.getElementById('root');
+            if (rootElement && !rootElement.innerHTML) {
+                rootElement.innerHTML = `
+                    <div style="padding: 40px; text-align: center; font-family: sans-serif;">
+                        <h2 style="color: #b91c1c; margin-bottom: 20px;">Erro ao carregar o aplicativo</h2>
+                        <p style="color: #7f1d1d; margin-bottom: 10px;">${e.error?.message || 'Erro desconhecido'}</p>
+                        <pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; max-width: 800px; margin: 20px auto;">${e.error?.stack || ''}</pre>
+                        <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                            Recarregar Página
+                        </button>
+                    </div>
+                `;
+            }
+        });
+        
+        window.addEventListener('unhandledrejection', (e) => {
+            console.error('❌ Promise rejeitada não tratada:', e.reason);
+        });
+        
         import React, { useState, useEffect, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
@@ -4830,14 +4854,19 @@ Equipe Sacramental LDS`);
             )
         }
 
-        // Renderização
-        // Renderizar o app com tratamento de erros
-        (async () => {
+        // Função para inicializar o app
+        async function initApp() {
             try {
                 console.log('🚀 Iniciando renderização do app...');
                 
-                // Aguardar um pouco para garantir que tudo está carregado
-                await new Promise(resolve => setTimeout(resolve, 100));
+                // Verificar se React está disponível
+                if (typeof React === 'undefined') {
+                    throw new Error('React não está disponível. Verifique se os módulos foram carregados corretamente.');
+                }
+                
+                if (typeof createRoot === 'undefined') {
+                    throw new Error('createRoot não está disponível. Verifique se react-dom/client foi carregado.');
+                }
                 
                 const rootElement = document.getElementById('root');
                 if (!rootElement) {
@@ -4854,7 +4883,7 @@ Equipe Sacramental LDS`);
                 const root = createRoot(rootElement);
                 
                 console.log('🎨 Renderizando componente...');
-                root.render(<PlanejadorSacramental />);
+                root.render(React.createElement(PlanejadorSacramental));
                 console.log('✅ App renderizado com sucesso');
             } catch (e) {
                 console.error('❌ Erro ao renderizar app:', e);
@@ -4865,36 +4894,34 @@ Equipe Sacramental LDS`);
                     loadingOverlay.style.display = 'none';
                 }
                 
-                const errorOverlay = document.getElementById('error-overlay');
-                if (errorOverlay) {
-                    errorOverlay.style.display = 'block';
-                    errorOverlay.innerHTML = `
-                        <div style="padding: 20px; max-width: 800px; margin: 0 auto;">
-                            <h3 style="font-size:18px; font-weight:bold; margin-bottom:10px; color: #b91c1c;">Erro ao carregar o aplicativo:</h3>
-                            <p style="margin-bottom:10px; color: #7f1d1d;">${e.message || 'Erro desconhecido'}</p>
-                            <pre style="background:#fef2f2; padding:10px; border-radius:8px; overflow:auto; margin-top:10px; font-size:12px; color: #991b1b;">${e.stack || 'Sem stack trace disponível'}</pre>
-                            <button onclick="window.location.reload()" style="margin-top:20px; padding:10px 20px; background:#3b82f6; color:white; border:none; border-radius:8px; cursor:pointer; font-weight:bold;">
+                const rootElement = document.getElementById('root');
+                if (rootElement) {
+                    rootElement.innerHTML = `
+                        <div style="padding: 40px; text-align: center; font-family: sans-serif; max-width: 800px; margin: 0 auto;">
+                            <h2 style="color: #b91c1c; margin-bottom: 20px; font-size: 24px;">Erro ao carregar o aplicativo</h2>
+                            <p style="color: #7f1d1d; margin-bottom: 15px; font-size: 16px;">${e.message || 'Erro desconhecido'}</p>
+                            <pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; font-size: 12px; color: #991b1b; margin: 20px 0;">${e.stack || 'Sem stack trace disponível'}</pre>
+                            <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
                                 Recarregar Página
                             </button>
                         </div>
                     `;
-                } else {
-                    // Se não tem error-overlay, mostrar no root
-                    const rootElement = document.getElementById('root');
-                    if (rootElement) {
-                        rootElement.innerHTML = `
-                            <div style="padding: 20px; text-align: center;">
-                                <h2 style="color: #b91c1c;">Erro ao carregar o aplicativo</h2>
-                                <p style="color: #7f1d1d;">${e.message || 'Erro desconhecido'}</p>
-                                <button onclick="window.location.reload()" style="margin-top:20px; padding:10px 20px; background:#3b82f6; color:white; border:none; border-radius:8px; cursor:pointer;">
-                                    Recarregar Página
-                                </button>
-                            </div>
-                        `;
-                    }
                 }
             }
-        })();
+        }
+
+        // Renderização
+        console.log('📋 Preparando renderização...');
+        
+        // Aguardar um pouco para garantir que tudo está carregado
+        setTimeout(() => {
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', initApp);
+            } else {
+                // DOM já está pronto
+                initApp();
+            }
+        }, 200);
     </script>
 </body>
 </html>
