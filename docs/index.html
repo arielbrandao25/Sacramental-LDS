@@ -229,27 +229,41 @@
                 }
                 return null;
             }
-            try {
-                const unidadeRef = doc(db, 'unidades', unidadeId);
-                const unidadeSnap = await getDoc(unidadeRef);
-                if (unidadeSnap.exists()) {
-                    return { id: unidadeSnap.id, ...unidadeSnap.data() };
-                }
-                // Fallback para localStorage
-                const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
-                if (unidadeDataStr) {
-                    return JSON.parse(unidadeDataStr);
-                }
-                return null;
-            } catch (e) {
-                console.error('❌ Erro ao carregar unidade do Firestore:', e);
-                // Fallback para localStorage
+            
+            // Verificar se está offline - usar localStorage imediatamente
+            if (!navigator.onLine) {
+                console.warn('⚠️ Sem conexão, usando localStorage');
                 const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
                 if (unidadeDataStr) {
                     return JSON.parse(unidadeDataStr);
                 }
                 return null;
             }
+            
+            try {
+                const unidadeRef = doc(db, 'unidades', unidadeId);
+                const unidadeSnap = await getDoc(unidadeRef);
+                if (unidadeSnap.exists()) {
+                    const data = { id: unidadeSnap.id, ...unidadeSnap.data() };
+                    // Salvar no localStorage como cache
+                    localStorage.setItem(`unidade_${unidadeId}`, JSON.stringify(data));
+                    return data;
+                }
+            } catch (e) {
+                // Se for erro de offline, usar localStorage silenciosamente
+                if (e.message && (e.message.includes('offline') || e.message.includes('Failed to get document'))) {
+                    console.warn('⚠️ Firestore offline, usando localStorage');
+                } else {
+                    console.error('❌ Erro ao carregar unidade do Firestore:', e);
+                }
+            }
+            
+            // Fallback para localStorage
+            const unidadeDataStr = localStorage.getItem(`unidade_${unidadeId}`);
+            if (unidadeDataStr) {
+                return JSON.parse(unidadeDataStr);
+            }
+            return null;
         };
         
         // Buscar todas as unidades do Firestore
@@ -336,27 +350,41 @@
                 }
                 return null;
             }
-            try {
-                const userRef = doc(db, 'usuarios', userId);
-                const userSnap = await getDoc(userRef);
-                if (userSnap.exists()) {
-                    return { id: userSnap.id, ...userSnap.data() };
-                }
-                // Fallback para localStorage
-                const userDataStr = localStorage.getItem(`user_${userId}`);
-                if (userDataStr) {
-                    return JSON.parse(userDataStr);
-                }
-                return null;
-            } catch (e) {
-                console.error('❌ Erro ao carregar usuário do Firestore:', e);
-                // Fallback para localStorage
+            
+            // Verificar se está offline - usar localStorage imediatamente
+            if (!navigator.onLine) {
+                console.warn('⚠️ Sem conexão, usando localStorage');
                 const userDataStr = localStorage.getItem(`user_${userId}`);
                 if (userDataStr) {
                     return JSON.parse(userDataStr);
                 }
                 return null;
             }
+            
+            try {
+                const userRef = doc(db, 'usuarios', userId);
+                const userSnap = await getDoc(userRef);
+                if (userSnap.exists()) {
+                    const data = { id: userSnap.id, ...userSnap.data() };
+                    // Salvar no localStorage como cache
+                    localStorage.setItem(`user_${userId}`, JSON.stringify(data));
+                    return data;
+                }
+            } catch (e) {
+                // Se for erro de offline, usar localStorage silenciosamente
+                if (e.message && (e.message.includes('offline') || e.message.includes('Failed to get document'))) {
+                    console.warn('⚠️ Firestore offline, usando localStorage');
+                } else {
+                    console.error('❌ Erro ao carregar usuário do Firestore:', e);
+                }
+            }
+            
+            // Fallback para localStorage
+            const userDataStr = localStorage.getItem(`user_${userId}`);
+            if (userDataStr) {
+                return JSON.parse(userDataStr);
+            }
+            return null;
         };
         
         // Buscar usuários de uma unidade
@@ -1901,63 +1929,64 @@
                         return;
                     }
                     
-                    // Buscar dados do usuário do Firestore
-                    try {
-                        let userData = null;
+                    // Buscar dados do usuário (priorizar localStorage se offline)
+                    let userData = null;
+                    
+                    // Primeiro tentar localStorage (mais rápido e funciona offline)
+                    const userDataStr = localStorage.getItem(`user_${user.uid}`);
+                    if (userDataStr) {
+                        try {
+                            userData = JSON.parse(userDataStr);
+                        } catch (e) {
+                            console.error("Erro ao parsear dados do usuário:", e);
+                        }
+                    }
+                    
+                    // Se não encontrou no localStorage, tentar Firestore (apenas se online)
+                    if (!userData && navigator.onLine) {
                         try {
                             userData = await carregarUsuarioFirestore(user.uid);
+                            // Se encontrou no Firestore, salvar no localStorage
+                            if (userData) {
+                                localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                            }
                         } catch (e) {
-                            console.warn("Erro ao buscar usuário do Firestore, tentando localStorage:", e);
+                            // Ignorar erros de offline silenciosamente
+                            if (!e.message || (!e.message.includes('offline') && !e.message.includes('Failed to get document'))) {
+                                console.warn("Erro ao buscar usuário do Firestore:", e);
+                            }
                         }
+                    }
+                    
+                    if (userData && userData.unidadeId) {
+                        // Buscar info da unidade (priorizar localStorage se offline)
+                        let unidadeData = null;
                         
-                        // Se não encontrou no Firestore, verificar localStorage (migração)
-                        if (!userData) {
-                            const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                            if (userDataStr) {
-                                try {
-                                    userData = JSON.parse(userDataStr);
-                                    // Migrar para Firestore (se disponível)
-                                    if (userData && db && typeof db !== 'undefined') {
-                                        try {
-                                            await salvarUsuarioFirestore(user.uid, userData);
-                                        } catch (e) {
-                                            console.warn('Erro ao migrar usuário para Firestore:', e);
-                                        }
-                                    }
-                                } catch (e) {
-                                    console.error("Erro ao parsear dados do usuário:", e);
-                                }
+                        // Primeiro tentar localStorage
+                        const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
+                        if (unidadeDataStr) {
+                            try {
+                                unidadeData = JSON.parse(unidadeDataStr);
+                            } catch (e) {
+                                console.error("Erro ao parsear dados da unidade:", e);
                             }
                         }
                         
-                        if (userData && userData.unidadeId) {
-                            // Buscar info da unidade do Firestore
-                            let unidadeData = null;
+                        // Se não encontrou no localStorage, tentar Firestore (apenas se online)
+                        if (!unidadeData && navigator.onLine) {
                             try {
                                 unidadeData = await carregarUnidadeFirestore(userData.unidadeId);
+                                // Se encontrou no Firestore, salvar no localStorage
+                                if (unidadeData) {
+                                    localStorage.setItem(`unidade_${user.uid}`, JSON.stringify(unidadeData));
+                                }
                             } catch (e) {
-                                console.warn("Erro ao buscar unidade do Firestore, tentando localStorage:", e);
-                            }
-                            
-                            // Se não encontrou no Firestore, verificar localStorage (migração)
-                            if (!unidadeData) {
-                                const unidadeDataStr = localStorage.getItem(`unidade_${user.uid}`);
-                                if (unidadeDataStr) {
-                                    try {
-                                        unidadeData = JSON.parse(unidadeDataStr);
-                                        // Migrar para Firestore (se disponível)
-                                        if (unidadeData && db && typeof db !== 'undefined') {
-                                            try {
-                                                await salvarUnidadeFirestore(unidadeData);
-                                            } catch (e) {
-                                                console.warn('Erro ao migrar unidade para Firestore:', e);
-                                            }
-                                        }
-                                    } catch (e) {
-                                        console.error("Erro ao parsear dados da unidade:", e);
-                                    }
+                                // Ignorar erros de offline silenciosamente
+                                if (!e.message || (!e.message.includes('offline') && !e.message.includes('Failed to get document'))) {
+                                    console.warn("Erro ao buscar unidade do Firestore:", e);
                                 }
                             }
+                        }
                             
                             if (unidadeData) {
                                 setUnidadeInfo(unidadeData);
