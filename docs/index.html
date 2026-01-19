@@ -394,31 +394,36 @@
         };
         
         // Carregar usuário do Firestore
-        const carregarUsuarioFirestore = async (userId) => {
-            // Verificar localStorage primeiro (mais rápido, funciona offline)
-            const userDataStr = localStorage.getItem(`user_${userId}`);
-            
-            try {
-                if (!navigator.onLine && userDataStr) {
+        const carregarUsuarioFirestore = async (userId, forceRefresh = false) => {
+            // Se não forçar refresh e estiver offline, usar localStorage
+            if (!forceRefresh && !navigator.onLine) {
+                const userDataStr = localStorage.getItem(`user_${userId}`);
+                if (userDataStr) {
                     console.warn('⚠️ Offline - usando cache do localStorage para usuário:', userId);
                     return JSON.parse(userDataStr);
                 }
-                
-                // Tentar carregar do Firestore
-                const userRef = doc(db, 'usuarios', userId);
-                const userSnap = await getDoc(userRef);
-                
-                if (userSnap.exists()) {
-                    const data = { id: userSnap.id, ...userSnap.data() };
-                    // Salvar no localStorage como cache
-                    localStorage.setItem(`user_${userId}`, JSON.stringify(data));
-                    return data;
+            }
+            
+            try {
+                // Sempre tentar carregar do Firestore primeiro (dados mais atualizados)
+                if (navigator.onLine) {
+                    const userRef = doc(db, 'usuarios', userId);
+                    const userSnap = await getDoc(userRef);
+                    
+                    if (userSnap.exists()) {
+                        const data = { id: userSnap.id, ...userSnap.data() };
+                        // Atualizar cache do localStorage
+                        localStorage.setItem(`user_${userId}`, JSON.stringify(data));
+                        console.log('✅ Usuário carregado do Firestore:', userId, 'Status:', data.status);
+                        return data;
+                    }
                 }
             } catch (e) {
                 console.error('❌ Erro ao carregar usuário do Firestore:', e);
             }
             
-            // Se não encontrou ou erro, usar localStorage como fallback
+            // Se não encontrou no Firestore ou erro, usar localStorage como fallback
+            const userDataStr = localStorage.getItem(`user_${userId}`);
             if (userDataStr) {
                 console.warn('⚠️ Usando cache do localStorage para usuário:', userId);
                 return JSON.parse(userDataStr);
@@ -4812,27 +4817,43 @@ Equipe Sacramental LDS`);
             const handleApprove = async (userId, requestId = null) => {
                 try {
                     setLoading(true);
+                    setError('');
+                    setSuccess('');
                     
-                    // Buscar dados do usuário no Firestore
-                    let userData = await carregarUsuarioFirestore(userId);
+                    // Buscar dados do usuário do Firestore (forçar refresh para pegar dados atualizados)
+                    let userData = await carregarUsuarioFirestore(userId, true);
+                    
+                    // Se não encontrou, criar dados básicos do usuário a partir da solicitação
                     if (!userData) {
-                        // Tentar do localStorage (migração)
-                        const userDataStr = localStorage.getItem(`user_${userId}`);
-                        if (userDataStr) {
-                            userData = JSON.parse(userDataStr);
-                        } else {
-                            setError('Usuário não encontrado.');
+                        // Buscar dados da solicitação
+                        const request = pendingRequests.find(r => r.userId === userId);
+                        if (!request) {
+                            setError('Solicitação não encontrada.');
                             setLoading(false);
                             return;
                         }
+                        
+                        userData = {
+                            id: userId,
+                            email: request.email,
+                            nome: request.nome || request.email.split('@')[0],
+                            unidadeId: unidadeId,
+                            role: 'user',
+                            status: 'pending',
+                            criadoEm: request.criadoEm?.toDate ? request.criadoEm.toDate().toISOString() : (request.criadoEm || new Date().toISOString())
+                        };
                     }
                     
-                    // Atualizar status do usuário no Firestore
+                    // Atualizar status do usuário para aprovado no Firestore
                     userData.status = 'approved';
                     userData.unidadeId = unidadeId;
-                    await salvarUsuarioFirestore(userId, userData);
+                    userData.atualizadoEm = new Date().toISOString();
                     
-                    // Salvar no localStorage para compatibilidade
+                    // Salvar no Firestore (isso sobrescreve qualquer status anterior)
+                    await salvarUsuarioFirestore(userId, userData);
+                    console.log('✅ Usuário aprovado no Firestore:', userId);
+                    
+                    // Atualizar localStorage também
                     localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
                     
                     // Se foi uma solicitação pendente, atualizar no Firestore
@@ -4850,6 +4871,9 @@ Equipe Sacramental LDS`);
                     } catch (e) {
                         console.error('Erro ao recarregar solicitações:', e);
                     }
+                    
+                    setSuccess(`✅ Usuário ${userData.email || userData.nome || userId} aprovado com sucesso!`);
+                    setLoading(false);
                     
                     // Compartilhar pasta do Drive com o usuário (para dados dos membros)
                     if (driveFolderId && userData.email) {
@@ -5094,30 +5118,20 @@ Equipe Sacramental LDS`);
                                             </div>
                                             <div className="flex items-center gap-2 ml-3">
                                                 <button
-                                                    onClick={() => {
-                                                        // Criar ou atualizar dados do usuário no Firestore
-                                                        const userData = {
-                                                            id: request.userId,
-                                                            email: request.email,
-                                                            nome: request.nome || request.email.split('@')[0],
-                                                            unidadeId: unidadeId,
-                                                            role: 'user',
-                                                            status: 'pending',
-                                                            criadoEm: request.criadoEm?.toDate ? request.criadoEm.toDate().toISOString() : (request.solicitadoEm || new Date().toISOString())
-                                                        };
-                                                        
-                                                        // Salvar no Firestore
-                                                        salvarUsuarioFirestore(request.userId, userData).then(() => {
-                                                            // Salvar no localStorage para compatibilidade
-                                                            localStorage.setItem(`user_${request.userId}`, JSON.stringify(userData));
-                                                            // Aprovar
-                                                            handleApprove(request.userId, request.id);
-                                                        }).catch(e => {
-                                                            console.error('Erro ao salvar usuário:', e);
-                                                            setError('Erro ao salvar dados do usuário.');
-                                                        });
+                                                    onClick={async () => {
+                                                        try {
+                                                            setLoading(true);
+                                                            // Aprovar diretamente usando handleApprove
+                                                            await handleApprove(request.userId, request.id || request.id);
+                                                        } catch (e) {
+                                                            console.error('Erro ao aprovar solicitação:', e);
+                                                            setError('Erro ao aprovar solicitação. Tente novamente.');
+                                                        } finally {
+                                                            setLoading(false);
+                                                        }
                                                     }}
-                                                    className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all"
+                                                    disabled={loading}
+                                                    className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                                     title="Aprovar solicitação"
                                                 >
                                                     Aprovar
