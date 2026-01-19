@@ -5134,22 +5134,13 @@ Equipe Sacramental LDS`);
                                             <div className="flex items-center gap-2 ml-3">
                                                 <button
                                                     onClick={async () => {
-                                                        try {
-                                                            setLoading(true);
-                                                            // Aprovar diretamente usando handleApprove
-                                                            await handleApprove(request.userId, request.id || request.id);
-                                                        } catch (e) {
-                                                            console.error('Erro ao aprovar solicitação:', e);
-                                                            setError('Erro ao aprovar solicitação. Tente novamente.');
-                                                        } finally {
-                                                            setLoading(false);
-                                                        }
+                                                        await handleApprove(request.userId, request.id);
                                                     }}
                                                     disabled={loading}
                                                     className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                                                     title="Aprovar solicitação"
                                                 >
-                                                    Aprovar
+                                                    {loading ? 'Aprovando...' : 'Aprovar'}
                                                 </button>
                                                 <button
                                                     onClick={() => handleRejectRequest(request)}
