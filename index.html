@@ -2043,6 +2043,7 @@
             const [showUserMenu, setShowUserMenu] = useState(false);
             const [showCallingManager, setShowCallingManager] = useState(false);
             const [showUserManager, setShowUserManager] = useState(false);
+            const [showSettings, setShowSettings] = useState(false);
 
 
             // Auth - usar Firebase onAuthStateChanged
@@ -2466,8 +2467,8 @@
                                             )}
                                             <button onClick={handleShare} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Share2 size={16} className="text-blue-600"/> Compartilhar</button>
                                             <button onClick={() => { setShowCallingManager(true); setShowUserMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Settings size={16} className="text-purple-600"/> Chamados</button>
+                                            <button onClick={() => { setShowSettings(true); setShowUserMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Settings size={16} className="text-indigo-600"/> Configurações</button>
                                             <div className="border-t border-gray-200 my-1"></div>
-                                            <button onClick={handleDeleteUser} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-all"><Trash2 size={16}/> Excluir Conta</button>
                                             <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-all"><LogOut size={16}/> Sair</button>
                                         </div>
                                     </>
@@ -2494,6 +2495,7 @@
 
                         {showCallingManager && <CallingsManager availableCallings={availableCallings} onClose={() => setShowCallingManager(false)} user={authData.user} driveFolderId={authData.driveFolderId} />}
                         {showUserManager && authData.role === 'admin' && <UserManager unidadeId={authData.unidadeId} unidadeUsers={unidadeUsers} driveFolderId={authData.driveFolderId} onClose={() => setShowUserManager(false)} />}
+                        {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onDeleteUser={handleDeleteUser} user={authData.user} />}
                     </div>
                 </div>
             );
@@ -5135,6 +5137,78 @@ Equipe Sacramental LDS`);
                                     <p className="text-xs mt-1">Use o formulário acima para convidar o primeiro usuário.</p>
                                 </div>
                             )}
+                        </div>
+                    </div>
+                </div>
+            );
+        }
+
+        function SettingsModal({ onClose, onDeleteUser, user }) {
+            return (
+                <div className="fixed inset-0 bg-black/50 z-50 flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                    <div className="bg-white w-full max-w-md rounded-2xl shadow-2xl border border-gray-200 p-6 animate-slide-up max-h-[90vh] overflow-y-auto">
+                        <div className="flex justify-between mb-6 items-center">
+                            <div>
+                                <h2 className="text-2xl font-bold text-gray-900">Configurações</h2>
+                                <p className="text-sm text-gray-500 mt-1">Gerencie suas preferências e conta</p>
+                            </div>
+                            <button onClick={onClose} className="p-2 rounded-full hover:bg-gray-200 transition-all">
+                                <X size={20} />
+                            </button>
+                        </div>
+                        
+                        <div className="space-y-4">
+                            {/* Informações da Conta */}
+                            <div className="bg-gray-50 rounded-xl p-4 border border-gray-200">
+                                <h3 className="font-semibold text-gray-900 mb-3 flex items-center gap-2">
+                                    <Users size={18} className="text-blue-600" />
+                                    Informações da Conta
+                                </h3>
+                                <div className="space-y-2 text-sm">
+                                    <div>
+                                        <span className="text-gray-600">Email:</span>
+                                        <span className="ml-2 font-medium text-gray-900">{user?.email || 'N/A'}</span>
+                                    </div>
+                                    {user?.displayName && (
+                                        <div>
+                                            <span className="text-gray-600">Nome:</span>
+                                            <span className="ml-2 font-medium text-gray-900">{user.displayName}</span>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                            
+                            {/* Zona de Perigo */}
+                            <div className="bg-red-50 rounded-xl p-4 border-2 border-red-200">
+                                <h3 className="font-semibold text-red-900 mb-3 flex items-center gap-2">
+                                    <AlertCircle size={18} className="text-red-600" />
+                                    Zona de Perigo
+                                </h3>
+                                <p className="text-sm text-red-700 mb-4">
+                                    Ações nesta seção são permanentes e não podem ser desfeitas.
+                                </p>
+                                <button
+                                    onClick={() => {
+                                        if (confirm('⚠️ ATENÇÃO!\n\nVocê está prestes a excluir sua conta permanentemente.\n\nEsta ação irá:\n- Excluir sua conta do Firebase\n- Excluir seus dados do Firestore\n- Remover todos os dados locais\n\nEsta ação NÃO pode ser desfeita!\n\nDeseja continuar?')) {
+                                            onDeleteUser();
+                                            onClose();
+                                        }
+                                    }}
+                                    className="w-full bg-red-600 hover:bg-red-700 text-white px-4 py-3 rounded-xl font-semibold transition-all flex items-center justify-center gap-2 shadow-md hover:shadow-lg"
+                                >
+                                    <Trash2 size={18} />
+                                    Excluir Minha Conta
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div className="mt-6 flex justify-end">
+                            <button
+                                onClick={onClose}
+                                className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-xl font-semibold transition-all"
+                            >
+                                Fechar
+                            </button>
                         </div>
                     </div>
                 </div>
