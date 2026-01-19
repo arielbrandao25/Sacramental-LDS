@@ -61,12 +61,17 @@ O app precisa dos seguintes índices:
   - `unidadeId` (Ascending)
   - `criadoEm` (Descending)
 
-### 2. Índice para Solicitações Pendentes (se necessário)
+### 2. Índice para Solicitações Pendentes (OBRIGATÓRIO)
 - **Coleção**: `solicitacoes`
 - **Campos**:
-  - `unidadeId` (Ascending)
-  - `status` (Ascending)
-  - `criadoEm` (Descending)
+  1. Campo: `unidadeId`
+     - Tipo: **Ascending** (Crescente)
+  2. Campo: `status`
+     - Tipo: **Ascending** (Crescente)
+  3. Campo: `criadoEm`
+     - Tipo: **Descending** (Decrescente)
+
+**⚠️ IMPORTANTE**: Este índice é necessário para exibir as solicitações de acesso pendentes. Sem ele, os administradores não conseguirão ver quem solicitou acesso à unidade.
 
 ## ⚠️ Importante
 

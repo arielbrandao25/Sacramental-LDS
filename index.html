@@ -527,7 +527,26 @@
                 
                 return solicitacoes;
             } catch (e) {
-                console.error('❌ Erro ao buscar solicitações:', e);
+                // Verificar se é erro de índice faltante
+                const isIndexError = e?.code === 'failed-precondition' || 
+                                    e?.message?.includes('index') || 
+                                    e?.message?.includes('requires an index');
+                
+                if (isIndexError) {
+                    // Erro de índice - usar localStorage e mostrar link útil
+                    console.warn('⚠️ Índice do Firestore para solicitações não criado ainda. Usando cache do localStorage.');
+                    if (e?.message?.includes('https://console.firebase.google.com')) {
+                        // Extrair o link do erro se disponível
+                        const linkMatch = e.message.match(/https:\/\/[^\s]+/);
+                        if (linkMatch) {
+                            console.info('📊 Para criar o índice de solicitações, acesse:', linkMatch[0]);
+                        }
+                    }
+                    return buscarSolicitacoesLocalStorage(unidadeId);
+                }
+                
+                // Outros erros - logar como warning
+                console.warn('⚠️ Erro ao buscar solicitações:', e?.message || e);
                 // Fallback para localStorage
                 return buscarSolicitacoesLocalStorage(unidadeId);
             }
