@@ -2790,6 +2790,7 @@
             const [form, setForm] = useState({ name: '', calling: '', type: 'member', gender: '', birthDate: '' });
             const [selectedMember, setSelectedMember] = useState(null);
             const [duplicateWarning, setDuplicateWarning] = useState(null); // { member, newData }
+            const [searchTerm, setSearchTerm] = useState(''); // Termo de busca
             
             // Função para verificar duplicatas
             const verificarDuplicatas = (newMember) => {
@@ -2953,6 +2954,31 @@
                 return null;
             };
             
+            // Função para normalizar nome para busca (remover acentos, espaços extras, lowercase)
+            const normalizarNome = (nome) => {
+                if (!nome) return '';
+                return nome
+                    .toLowerCase()
+                    .normalize('NFD')
+                    .replace(/[\u0300-\u036f]/g, '') // Remove acentos
+                    .trim()
+                    .replace(/\s+/g, ' '); // Remove espaços múltiplos
+            };
+            
+            // Filtrar membros baseado no termo de busca
+            const filtrarMembros = (listaMembros) => {
+                if (!searchTerm.trim()) return listaMembros;
+                
+                const termoNormalizado = normalizarNome(searchTerm);
+                return listaMembros.filter(m => {
+                    const nomeNormalizado = normalizarNome(m.name);
+                    return nomeNormalizado.includes(termoNormalizado);
+                });
+            };
+            
+            const membrosFiltrados = filtrarMembros(members.filter(m => m.type !== 'visitor'));
+            const visitantesFiltrados = filtrarMembros(members.filter(m => m.type === 'visitor'));
+            
             return (
                 <div className="space-y-6 animate-fade-in">
                     <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-md">
@@ -3046,17 +3072,47 @@
                             <datalist id="callings">{availableCallings.map(c=><option key={c.id} value={c.name}/>)}</datalist>
                         </form>
                     </div>
+                    
+                    {/* Campo de Busca */}
+                    <div className="bg-white p-4 rounded-2xl border border-gray-200 shadow-md">
+                        <div className="relative">
+                            <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400" size={20} />
+                            <input 
+                                type="text"
+                                value={searchTerm}
+                                onChange={(e) => setSearchTerm(e.target.value)}
+                                placeholder="Buscar membro por nome..."
+                                className="w-full pl-10 pr-4 py-3 border-2 border-gray-200 rounded-xl focus:border-blue-500 focus:outline-none transition-all"
+                            />
+                            {searchTerm && (
+                                <button
+                                    onClick={() => setSearchTerm('')}
+                                    className="absolute right-3 top-1/2 transform -translate-y-1/2 text-gray-400 hover:text-gray-600 transition-colors"
+                                >
+                                    <X size={18} />
+                                </button>
+                            )}
+                        </div>
+                        {searchTerm && (
+                            <p className="text-xs text-gray-500 mt-2">
+                                {membrosFiltrados.length + visitantesFiltrados.length > 0 
+                                    ? `Encontrado(s) ${membrosFiltrados.length + visitantesFiltrados.length} resultado(s)`
+                                    : 'Nenhum resultado encontrado'}
+                            </p>
+                        )}
+                    </div>
+                    
                     {/* Seção de Membros */}
                     {members.filter(m => m.type !== 'visitor').length > 0 && (
                         <div className="space-y-3">
                             <div className="flex items-center gap-2 mb-2">
                                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-blue-300 to-transparent"></div>
                                 <h3 className="text-sm font-bold text-blue-700 bg-blue-50 px-3 py-1 rounded-full border border-blue-200">
-                                    Membros ({members.filter(m => m.type !== 'visitor').length})
+                                    Membros ({searchTerm ? membrosFiltrados.length : members.filter(m => m.type !== 'visitor').length})
                                 </h3>
                                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-blue-300 to-transparent"></div>
                             </div>
-                            {members.filter(m => m.type !== 'visitor').map(m => {
+                            {membrosFiltrados.length > 0 ? membrosFiltrados.map(m => {
                                 const classe = determinarClasse(m.gender, m.birthDate);
                                 const getClasseColor = (classe) => {
                                     if (!classe) return '';
@@ -3105,7 +3161,13 @@
                                         </button>
                                     </div>
                                 );
-                            })}
+                            }) : searchTerm && (
+                                <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 text-center">
+                                    <Search size={32} className="mx-auto text-gray-400 mb-2" />
+                                    <p className="text-gray-500 font-medium">Nenhum membro encontrado</p>
+                                    <p className="text-sm text-gray-400 mt-1">Tente buscar com outro nome</p>
+                                </div>
+                            )}
                         </div>
                     )}
                     
@@ -3115,11 +3177,11 @@
                             <div className="flex items-center gap-2 mb-2">
                                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-emerald-300 to-transparent"></div>
                                 <h3 className="text-sm font-bold text-emerald-700 bg-emerald-50 px-3 py-1 rounded-full border border-emerald-200">
-                                    Visitantes ({members.filter(m => m.type === 'visitor').length})
+                                    Visitantes ({searchTerm ? visitantesFiltrados.length : members.filter(m => m.type === 'visitor').length})
                                 </h3>
                                 <div className="h-px flex-1 bg-gradient-to-r from-transparent via-emerald-300 to-transparent"></div>
                             </div>
-                            {members.filter(m => m.type === 'visitor').map(m => {
+                            {visitantesFiltrados.length > 0 ? visitantesFiltrados.map(m => {
                                 return (
                                     <div 
                                         key={m.id} 
@@ -3151,12 +3213,18 @@
                                         </button>
                                     </div>
                                 );
-                            })}
+                            }) : searchTerm && (
+                                <div className="bg-gray-50 p-6 rounded-2xl border border-gray-200 text-center">
+                                    <Search size={32} className="mx-auto text-gray-400 mb-2" />
+                                    <p className="text-gray-500 font-medium">Nenhum visitante encontrado</p>
+                                    <p className="text-sm text-gray-400 mt-1">Tente buscar com outro nome</p>
+                                </div>
+                            )}
                         </div>
                     )}
                     
                     {/* Mensagem quando não há membros */}
-                    {members.length === 0 && (
+                    {members.length === 0 && !searchTerm && (
                         <div className="bg-gray-50 p-8 rounded-2xl border border-gray-200 text-center">
                             <Users size={48} className="mx-auto text-gray-400 mb-3" />
                             <p className="text-gray-500 font-medium">Nenhum membro cadastrado</p>
