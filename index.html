@@ -171,8 +171,8 @@
         import React, { useState, useEffect, useMemo } from 'react';
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
-        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut } from 'firebase/auth';
-        import { getFirestore, collection, doc, getDoc, setDoc, getDocs, updateDoc, query, where, orderBy } from 'firebase/firestore';
+        import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, deleteUser } from 'firebase/auth';
+        import { getFirestore, collection, doc, getDoc, setDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
         import { 
             Calendar, Users, UserPlus, Save, Trash2, AlertCircle, Check, 
             ChevronLeft, ChevronRight, ChevronDown, Search, BookOpen, 
@@ -2313,6 +2313,101 @@
                 setShowUserMenu(false);
             };
 
+            const handleDeleteUser = async () => {
+                if (!authData?.user) return;
+                
+                const confirmMessage = `Tem certeza que deseja excluir sua conta?\n\n` +
+                    `Esta ação é IRREVERSÍVEL e irá:\n` +
+                    `- Excluir sua conta do Firebase\n` +
+                    `- Excluir seus dados do Firestore\n` +
+                    `- Remover todos os dados locais\n\n` +
+                    `Digite "EXCLUIR" para confirmar:`;
+                
+                const userInput = prompt(confirmMessage);
+                
+                if (userInput !== 'EXCLUIR') {
+                    return;
+                }
+                
+                const secondConfirm = confirm('⚠️ ÚLTIMA CONFIRMAÇÃO!\n\n' +
+                    'Você realmente deseja excluir sua conta permanentemente?\n\n' +
+                    'Esta ação não pode ser desfeita!');
+                
+                if (!secondConfirm) {
+                    return;
+                }
+                
+                try {
+                    setLoading(true);
+                    const userId = authData.user.uid;
+                    
+                    // 1. Excluir do Firestore
+                    try {
+                        const userRef = doc(db, 'usuarios', userId);
+                        await deleteDoc(userRef);
+                        console.log('✅ Usuário excluído do Firestore');
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao excluir do Firestore (continuando):', e);
+                    }
+                    
+                    // 2. Excluir solicitações relacionadas
+                    try {
+                        const solicitacoesRef = collection(db, 'solicitacoes');
+                        const q = query(solicitacoesRef, where('userId', '==', userId));
+                        const querySnapshot = await getDocs(q);
+                        
+                        const deletePromises = [];
+                        querySnapshot.forEach((docSnapshot) => {
+                            deletePromises.push(deleteDoc(doc(db, 'solicitacoes', docSnapshot.id)));
+                        });
+                        
+                        await Promise.all(deletePromises);
+                        console.log('✅ Solicitações excluídas do Firestore');
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao excluir solicitações (continuando):', e);
+                    }
+                    
+                    // 3. Limpar localStorage
+                    try {
+                        localStorage.removeItem(`user_${userId}`);
+                        localStorage.removeItem(`unidade_${userId}`);
+                        // Limpar outros dados relacionados
+                        for (let i = localStorage.length - 1; i >= 0; i--) {
+                            const key = localStorage.key(i);
+                            if (key && (key.startsWith(`user_${userId}_`) || key.includes(userId))) {
+                                localStorage.removeItem(key);
+                            }
+                        }
+                        console.log('✅ Dados locais removidos');
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao limpar localStorage (continuando):', e);
+                    }
+                    
+                    // 4. Excluir conta do Firebase Auth (deve ser o último)
+                    try {
+                        const user = auth.currentUser;
+                        if (user) {
+                            await deleteUser(user);
+                            console.log('✅ Conta excluída do Firebase Auth');
+                        }
+                    } catch (e) {
+                        console.error('❌ Erro ao excluir conta do Firebase Auth:', e);
+                        // Se falhar, fazer logout mesmo assim
+                        await signOut(auth);
+                    }
+                    
+                    // 5. Limpar estado e redirecionar
+                    setAuthData(null);
+                    alert('Conta excluída com sucesso. Você será redirecionado.');
+                    window.location.reload();
+                    
+                } catch (e) {
+                    console.error('❌ Erro ao excluir usuário:', e);
+                    alert('Erro ao excluir conta: ' + (e.message || 'Tente novamente mais tarde.'));
+                    setLoading(false);
+                }
+            };
+
             const handleLogout = async () => {
                 try {
                     await signOut(auth);
@@ -2372,6 +2467,7 @@
                                             <button onClick={handleShare} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Share2 size={16} className="text-blue-600"/> Compartilhar</button>
                                             <button onClick={() => { setShowCallingManager(true); setShowUserMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Settings size={16} className="text-purple-600"/> Chamados</button>
                                             <div className="border-t border-gray-200 my-1"></div>
+                                            <button onClick={handleDeleteUser} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-all"><Trash2 size={16}/> Excluir Conta</button>
                                             <button onClick={handleLogout} className="w-full text-left px-4 py-3 text-sm text-red-600 hover:bg-red-50 flex items-center gap-3 transition-all"><LogOut size={16}/> Sair</button>
                                         </div>
                                     </>
