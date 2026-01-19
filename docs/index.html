@@ -112,17 +112,20 @@
         
         // Tratamento de erros global
         window.addEventListener('error', (e) => {
-            // Ignorar erros de offline do Firestore
+            // Ignorar erros de offline do Firestore e banco não existente
             const isOfflineError = e.error?.code === 'unavailable' || 
                                   e.error?.code === 'failed-precondition' ||
+                                  e.error?.code === 'not-found' ||
                                   e.error?.message?.includes('offline') ||
                                   e.error?.message?.includes('client is offline') ||
+                                  e.error?.message?.includes('database') && e.error?.message?.includes('does not exist') ||
                                   e.message?.includes('offline') ||
-                                  e.message?.includes('client is offline');
+                                  e.message?.includes('client is offline') ||
+                                  e.message?.includes('database') && e.message?.includes('does not exist');
             
             if (isOfflineError) {
-                console.warn('⚠️ Erro de conectividade (offline) - ignorando:', e.error?.message || e.message);
-                return; // Não mostrar erro na tela para problemas de conectividade
+                console.warn('⚠️ Erro de conectividade/Firestore - ignorando:', e.error?.message || e.message);
+                return; // Não mostrar erro na tela para problemas de conectividade ou banco não configurado
             }
             
             console.error('❌ Erro global capturado:', e.error);
@@ -130,17 +133,20 @@
         });
         
         window.addEventListener('unhandledrejection', (e) => {
-            // Ignorar erros de offline do Firestore
+            // Ignorar erros de offline do Firestore e banco não existente
             const isOfflineError = e.reason?.code === 'unavailable' || 
                                   e.reason?.code === 'failed-precondition' ||
+                                  e.reason?.code === 'not-found' ||
                                   e.reason?.message?.includes('offline') ||
                                   e.reason?.message?.includes('client is offline') ||
+                                  e.reason?.message?.includes('database') && e.reason?.message?.includes('does not exist') ||
                                   String(e.reason)?.includes('offline') ||
-                                  String(e.reason)?.includes('client is offline');
+                                  String(e.reason)?.includes('client is offline') ||
+                                  String(e.reason)?.includes('database') && String(e.reason)?.includes('does not exist');
             
             if (isOfflineError) {
-                console.warn('⚠️ Promise rejeitada por conectividade (offline) - ignorando:', e.reason?.message || String(e.reason));
-                return; // Não mostrar erro na tela para problemas de conectividade
+                console.warn('⚠️ Promise rejeitada por conectividade/Firestore - ignorando:', e.reason?.message || String(e.reason));
+                return; // Não mostrar erro na tela para problemas de conectividade ou banco não configurado
             }
             
             console.error('❌ Promise rejeitada não tratada:', e.reason);
@@ -239,17 +245,19 @@
                     return data;
                 }
             } catch (e) {
-                // Verificar se é erro de offline ou conectividade
+                // Verificar se é erro de offline, conectividade ou banco não existente
                 const isOfflineError = e?.code === 'unavailable' || 
                                       e?.code === 'failed-precondition' ||
+                                      e?.code === 'not-found' ||
                                       e?.message?.includes('offline') ||
                                       e?.message?.includes('client is offline') ||
+                                      e?.message?.includes('database') && e?.message?.includes('does not exist') ||
                                       !navigator.onLine;
                 
                 if (isOfflineError) {
-                    // Erro de offline - usar localStorage silenciosamente
+                    // Erro de offline ou banco não configurado - usar localStorage silenciosamente
                     if (unidadeDataStr) {
-                        console.warn('⚠️ Offline - usando cache do localStorage para unidade:', unidadeId);
+                        console.warn('⚠️ Firestore indisponível - usando cache do localStorage para unidade:', unidadeId);
                         return JSON.parse(unidadeDataStr);
                     }
                 } else {
