@@ -112,16 +112,18 @@
         
         // Tratamento de erros global
         window.addEventListener('error', (e) => {
-            // Ignorar erros de offline do Firestore e banco não existente
+            // Ignorar erros de offline do Firestore, banco não existente e índices faltantes
             const isOfflineError = e.error?.code === 'unavailable' || 
                                   e.error?.code === 'failed-precondition' ||
                                   e.error?.code === 'not-found' ||
                                   e.error?.message?.includes('offline') ||
                                   e.error?.message?.includes('client is offline') ||
                                   e.error?.message?.includes('database') && e.error?.message?.includes('does not exist') ||
+                                  e.error?.message?.includes('index') && e.error?.message?.includes('requires') ||
                                   e.message?.includes('offline') ||
                                   e.message?.includes('client is offline') ||
-                                  e.message?.includes('database') && e.message?.includes('does not exist');
+                                  e.message?.includes('database') && e.message?.includes('does not exist') ||
+                                  e.message?.includes('index') && e.message?.includes('requires');
             
             if (isOfflineError) {
                 console.warn('⚠️ Erro de conectividade/Firestore - ignorando:', e.error?.message || e.message);
@@ -133,16 +135,18 @@
         });
         
         window.addEventListener('unhandledrejection', (e) => {
-            // Ignorar erros de offline do Firestore e banco não existente
+            // Ignorar erros de offline do Firestore, banco não existente e índices faltantes
             const isOfflineError = e.reason?.code === 'unavailable' || 
                                   e.reason?.code === 'failed-precondition' ||
                                   e.reason?.code === 'not-found' ||
                                   e.reason?.message?.includes('offline') ||
                                   e.reason?.message?.includes('client is offline') ||
                                   e.reason?.message?.includes('database') && e.reason?.message?.includes('does not exist') ||
+                                  e.reason?.message?.includes('index') && e.reason?.message?.includes('requires') ||
                                   String(e.reason)?.includes('offline') ||
                                   String(e.reason)?.includes('client is offline') ||
-                                  String(e.reason)?.includes('database') && String(e.reason)?.includes('does not exist');
+                                  String(e.reason)?.includes('database') && String(e.reason)?.includes('does not exist') ||
+                                  String(e.reason)?.includes('index') && String(e.reason)?.includes('requires');
             
             if (isOfflineError) {
                 console.warn('⚠️ Promise rejeitada por conectividade/Firestore - ignorando:', e.reason?.message || String(e.reason));
@@ -398,7 +402,26 @@
                 
                 return usuarios;
             } catch (e) {
-                console.error('❌ Erro ao buscar usuários da unidade:', e);
+                // Verificar se é erro de índice faltante
+                const isIndexError = e?.code === 'failed-precondition' || 
+                                    e?.message?.includes('index') || 
+                                    e?.message?.includes('requires an index');
+                
+                if (isIndexError) {
+                    // Erro de índice - usar localStorage e mostrar link útil
+                    console.warn('⚠️ Índice do Firestore não criado ainda. Usando cache do localStorage.');
+                    if (e?.message?.includes('https://console.firebase.google.com')) {
+                        // Extrair o link do erro se disponível
+                        const linkMatch = e.message.match(/https:\/\/[^\s]+/);
+                        if (linkMatch) {
+                            console.info('📊 Para criar o índice, acesse:', linkMatch[0]);
+                        }
+                    }
+                    return buscarUsuariosLocalStorage(unidadeId);
+                }
+                
+                // Outros erros - logar como warning
+                console.warn('⚠️ Erro ao buscar usuários da unidade:', e?.message || e);
                 // Fallback para localStorage
                 return buscarUsuariosLocalStorage(unidadeId);
             }
