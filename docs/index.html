@@ -112,7 +112,7 @@
         
         // Tratamento de erros global
         window.addEventListener('error', (e) => {
-            // Ignorar erros de offline do Firestore, banco não existente, índices faltantes e Cross-Origin-Opener-Policy
+            // Ignorar erros de offline do Firestore, banco não existente, índices faltantes, Cross-Origin-Opener-Policy e tokens OAuth expirados
             const isOfflineError = e.error?.code === 'unavailable' || 
                                   e.error?.code === 'failed-precondition' ||
                                   e.error?.code === 'not-found' ||
@@ -125,14 +125,19 @@
                                   e.message?.includes('client is offline') ||
                                   e.message?.includes('database') && e.message?.includes('does not exist') ||
                                   e.message?.includes('index') && e.message?.includes('requires') ||
-                                  e.message?.includes('Cross-Origin-Opener-Policy');
+                                  e.message?.includes('Cross-Origin-Opener-Policy') ||
+                                  e.filename?.includes('tokeninfo') || // Ignorar erros do tokeninfo do Google OAuth
+                                  e.message?.includes('tokeninfo'); // Ignorar erros do tokeninfo do Google OAuth
             
             if (isOfflineError) {
-                // Não logar Cross-Origin-Opener-Policy como warning (é apenas um aviso do Chrome)
-                if (!e.error?.message?.includes('Cross-Origin-Opener-Policy') && !e.message?.includes('Cross-Origin-Opener-Policy')) {
+                // Não logar Cross-Origin-Opener-Policy ou tokeninfo como warning (são avisos esperados)
+                const isTokenInfoError = e.filename?.includes('tokeninfo') || e.message?.includes('tokeninfo');
+                const isCoopError = e.error?.message?.includes('Cross-Origin-Opener-Policy') || e.message?.includes('Cross-Origin-Opener-Policy');
+                
+                if (!isCoopError && !isTokenInfoError) {
                     console.warn('⚠️ Erro de conectividade/Firestore - ignorando:', e.error?.message || e.message);
                 }
-                return; // Não mostrar erro na tela para problemas de conectividade ou banco não configurado
+                return; // Não mostrar erro na tela para problemas de conectividade, banco não configurado ou tokens expirados
             }
             
             console.error('❌ Erro global capturado:', e.error);
@@ -140,7 +145,7 @@
         });
         
         window.addEventListener('unhandledrejection', (e) => {
-            // Ignorar erros de offline do Firestore, banco não existente, índices faltantes e Cross-Origin-Opener-Policy
+            // Ignorar erros de offline do Firestore, banco não existente, índices faltantes, Cross-Origin-Opener-Policy e tokens OAuth expirados
             const isOfflineError = e.reason?.code === 'unavailable' || 
                                   e.reason?.code === 'failed-precondition' ||
                                   e.reason?.code === 'not-found' ||
@@ -149,18 +154,23 @@
                                   e.reason?.message?.includes('database') && e.reason?.message?.includes('does not exist') ||
                                   e.reason?.message?.includes('index') && e.reason?.message?.includes('requires') ||
                                   e.reason?.message?.includes('Cross-Origin-Opener-Policy') ||
+                                  e.reason?.message?.includes('tokeninfo') || // Ignorar erros do tokeninfo do Google OAuth
                                   String(e.reason)?.includes('offline') ||
                                   String(e.reason)?.includes('client is offline') ||
                                   String(e.reason)?.includes('database') && String(e.reason)?.includes('does not exist') ||
                                   String(e.reason)?.includes('index') && String(e.reason)?.includes('requires') ||
-                                  String(e.reason)?.includes('Cross-Origin-Opener-Policy');
+                                  String(e.reason)?.includes('Cross-Origin-Opener-Policy') ||
+                                  String(e.reason)?.includes('tokeninfo'); // Ignorar erros do tokeninfo do Google OAuth
             
             if (isOfflineError) {
-                // Não logar Cross-Origin-Opener-Policy como warning (é apenas um aviso do Chrome)
-                if (!e.reason?.message?.includes('Cross-Origin-Opener-Policy') && !String(e.reason)?.includes('Cross-Origin-Opener-Policy')) {
+                // Não logar Cross-Origin-Opener-Policy ou tokeninfo como warning (são avisos esperados)
+                const isTokenInfoError = e.reason?.message?.includes('tokeninfo') || String(e.reason)?.includes('tokeninfo');
+                const isCoopError = e.reason?.message?.includes('Cross-Origin-Opener-Policy') || String(e.reason)?.includes('Cross-Origin-Opener-Policy');
+                
+                if (!isCoopError && !isTokenInfoError) {
                     console.warn('⚠️ Promise rejeitada por conectividade/Firestore - ignorando:', e.reason?.message || String(e.reason));
                 }
-                return; // Não mostrar erro na tela para problemas de conectividade ou banco não configurado
+                return; // Não mostrar erro na tela para problemas de conectividade, banco não configurado ou tokens expirados
             }
             
             console.error('❌ Promise rejeitada não tratada:', e.reason);
