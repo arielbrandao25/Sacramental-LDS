@@ -112,7 +112,7 @@
         
         // Tratamento de erros global
         window.addEventListener('error', (e) => {
-            // Ignorar erros de offline do Firestore, banco não existente e índices faltantes
+            // Ignorar erros de offline do Firestore, banco não existente, índices faltantes e Cross-Origin-Opener-Policy
             const isOfflineError = e.error?.code === 'unavailable' || 
                                   e.error?.code === 'failed-precondition' ||
                                   e.error?.code === 'not-found' ||
@@ -120,13 +120,18 @@
                                   e.error?.message?.includes('client is offline') ||
                                   e.error?.message?.includes('database') && e.error?.message?.includes('does not exist') ||
                                   e.error?.message?.includes('index') && e.error?.message?.includes('requires') ||
+                                  e.error?.message?.includes('Cross-Origin-Opener-Policy') ||
                                   e.message?.includes('offline') ||
                                   e.message?.includes('client is offline') ||
                                   e.message?.includes('database') && e.message?.includes('does not exist') ||
-                                  e.message?.includes('index') && e.message?.includes('requires');
+                                  e.message?.includes('index') && e.message?.includes('requires') ||
+                                  e.message?.includes('Cross-Origin-Opener-Policy');
             
             if (isOfflineError) {
-                console.warn('⚠️ Erro de conectividade/Firestore - ignorando:', e.error?.message || e.message);
+                // Não logar Cross-Origin-Opener-Policy como warning (é apenas um aviso do Chrome)
+                if (!e.error?.message?.includes('Cross-Origin-Opener-Policy') && !e.message?.includes('Cross-Origin-Opener-Policy')) {
+                    console.warn('⚠️ Erro de conectividade/Firestore - ignorando:', e.error?.message || e.message);
+                }
                 return; // Não mostrar erro na tela para problemas de conectividade ou banco não configurado
             }
             
@@ -135,7 +140,7 @@
         });
         
         window.addEventListener('unhandledrejection', (e) => {
-            // Ignorar erros de offline do Firestore, banco não existente e índices faltantes
+            // Ignorar erros de offline do Firestore, banco não existente, índices faltantes e Cross-Origin-Opener-Policy
             const isOfflineError = e.reason?.code === 'unavailable' || 
                                   e.reason?.code === 'failed-precondition' ||
                                   e.reason?.code === 'not-found' ||
@@ -143,13 +148,18 @@
                                   e.reason?.message?.includes('client is offline') ||
                                   e.reason?.message?.includes('database') && e.reason?.message?.includes('does not exist') ||
                                   e.reason?.message?.includes('index') && e.reason?.message?.includes('requires') ||
+                                  e.reason?.message?.includes('Cross-Origin-Opener-Policy') ||
                                   String(e.reason)?.includes('offline') ||
                                   String(e.reason)?.includes('client is offline') ||
                                   String(e.reason)?.includes('database') && String(e.reason)?.includes('does not exist') ||
-                                  String(e.reason)?.includes('index') && String(e.reason)?.includes('requires');
+                                  String(e.reason)?.includes('index') && String(e.reason)?.includes('requires') ||
+                                  String(e.reason)?.includes('Cross-Origin-Opener-Policy');
             
             if (isOfflineError) {
-                console.warn('⚠️ Promise rejeitada por conectividade/Firestore - ignorando:', e.reason?.message || String(e.reason));
+                // Não logar Cross-Origin-Opener-Policy como warning (é apenas um aviso do Chrome)
+                if (!e.reason?.message?.includes('Cross-Origin-Opener-Policy') && !String(e.reason)?.includes('Cross-Origin-Opener-Policy')) {
+                    console.warn('⚠️ Promise rejeitada por conectividade/Firestore - ignorando:', e.reason?.message || String(e.reason));
+                }
                 return; // Não mostrar erro na tela para problemas de conectividade ou banco não configurado
             }
             
@@ -1322,24 +1332,55 @@
                     // Buscar dados do usuário no Firestore
                     let userData = await carregarUsuarioFirestore(user.uid);
                     
-                    // Se não encontrou no Firestore, usar dados do Firebase Auth
-                    if (!userData && auth.currentUser) {
-                        userData = {
-                            id: auth.currentUser.uid,
-                            email: auth.currentUser.email,
-                            nome: auth.currentUser.displayName || auth.currentUser.email?.split('@')[0]
-                        };
-                    }
-                    
-                    // Se ainda não encontrou, verificar localStorage (migração)
+                    // Se não encontrou no Firestore, criar dados do Firebase Auth e salvar
                     if (!userData) {
+                        // Verificar localStorage primeiro (migração)
                         const userDataStr = localStorage.getItem(`user_${user.uid}`);
                         if (userDataStr) {
-                            userData = JSON.parse(userDataStr);
-                            // Migrar para Firestore
-                            if (userData) {
-                                await salvarUsuarioFirestore(user.uid, userData);
+                            try {
+                                userData = JSON.parse(userDataStr);
+                                // Migrar para Firestore
+                                if (userData) {
+                                    await salvarUsuarioFirestore(user.uid, userData);
+                                    console.log('✅ Usuário migrado do localStorage para Firestore');
+                                }
+                            } catch (e) {
+                                console.warn('Erro ao parsear dados do localStorage:', e);
                             }
+                        }
+                        
+                        // Se ainda não encontrou, criar novo registro no Firestore
+                        if (!userData) {
+                            const newUserData = {
+                                id: user.uid,
+                                email: user.email,
+                                nome: user.displayName || user.email?.split('@')[0],
+                                criadoEm: new Date().toISOString(),
+                                atualizadoEm: new Date().toISOString()
+                            };
+                            
+                            // Salvar no Firestore
+                            await salvarUsuarioFirestore(user.uid, newUserData);
+                            console.log('✅ Novo usuário salvo no Firestore:', user.uid);
+                            userData = newUserData;
+                        }
+                    } else {
+                        // Usuário já existe no Firestore, atualizar dados se necessário
+                        const needsUpdate = !userData.email || 
+                                          !userData.nome || 
+                                          (user.email && userData.email !== user.email) ||
+                                          (user.displayName && userData.nome !== user.displayName);
+                        
+                        if (needsUpdate) {
+                            const updatedData = {
+                                ...userData,
+                                email: user.email || userData.email,
+                                nome: user.displayName || userData.nome || user.email?.split('@')[0],
+                                atualizadoEm: new Date().toISOString()
+                            };
+                            await salvarUsuarioFirestore(user.uid, updatedData);
+                            console.log('✅ Dados do usuário atualizados no Firestore');
+                            userData = updatedData;
                         }
                     }
                     
