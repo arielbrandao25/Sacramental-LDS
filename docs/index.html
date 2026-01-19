@@ -112,11 +112,37 @@
         
         // Tratamento de erros global
         window.addEventListener('error', (e) => {
+            // Ignorar erros de offline do Firestore
+            const isOfflineError = e.error?.code === 'unavailable' || 
+                                  e.error?.code === 'failed-precondition' ||
+                                  e.error?.message?.includes('offline') ||
+                                  e.error?.message?.includes('client is offline') ||
+                                  e.message?.includes('offline') ||
+                                  e.message?.includes('client is offline');
+            
+            if (isOfflineError) {
+                console.warn('⚠️ Erro de conectividade (offline) - ignorando:', e.error?.message || e.message);
+                return; // Não mostrar erro na tela para problemas de conectividade
+            }
+            
             console.error('❌ Erro global capturado:', e.error);
             mostrarErro(e.error?.message || e.message || 'Erro desconhecido', e.error?.stack || e.stack);
         });
         
         window.addEventListener('unhandledrejection', (e) => {
+            // Ignorar erros de offline do Firestore
+            const isOfflineError = e.reason?.code === 'unavailable' || 
+                                  e.reason?.code === 'failed-precondition' ||
+                                  e.reason?.message?.includes('offline') ||
+                                  e.reason?.message?.includes('client is offline') ||
+                                  String(e.reason)?.includes('offline') ||
+                                  String(e.reason)?.includes('client is offline');
+            
+            if (isOfflineError) {
+                console.warn('⚠️ Promise rejeitada por conectividade (offline) - ignorando:', e.reason?.message || String(e.reason));
+                return; // Não mostrar erro na tela para problemas de conectividade
+            }
+            
             console.error('❌ Promise rejeitada não tratada:', e.reason);
             mostrarErro('Erro ao carregar módulos: ' + (e.reason?.message || String(e.reason)), e.reason?.stack);
         });
@@ -213,7 +239,23 @@
                     return data;
                 }
             } catch (e) {
-                console.error('❌ Erro ao carregar unidade do Firestore:', e);
+                // Verificar se é erro de offline ou conectividade
+                const isOfflineError = e?.code === 'unavailable' || 
+                                      e?.code === 'failed-precondition' ||
+                                      e?.message?.includes('offline') ||
+                                      e?.message?.includes('client is offline') ||
+                                      !navigator.onLine;
+                
+                if (isOfflineError) {
+                    // Erro de offline - usar localStorage silenciosamente
+                    if (unidadeDataStr) {
+                        console.warn('⚠️ Offline - usando cache do localStorage para unidade:', unidadeId);
+                        return JSON.parse(unidadeDataStr);
+                    }
+                } else {
+                    // Outro tipo de erro - logar como warning
+                    console.warn('⚠️ Erro ao carregar unidade do Firestore:', e?.message || e);
+                }
             }
             
             // Se não encontrou ou erro, usar localStorage como fallback
