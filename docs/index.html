@@ -2074,6 +2074,7 @@
             const [selectedAssignmentId, setSelectedAssignmentId] = useState(null);
             const [unidadeInfo, setUnidadeInfo] = useState(null);
             const [unidadeUsers, setUnidadeUsers] = useState([]);
+            const [pendingRequestsCount, setPendingRequestsCount] = useState(0);
 
             // UI Global
             const [showUserMenu, setShowUserMenu] = useState(false);
@@ -2252,6 +2253,18 @@
                             }
                         }
                         setUnidadeUsers(allUsers);
+                    }
+                    
+                    // Buscar solicitações pendentes (apenas para admins)
+                    if (authData.role === 'admin') {
+                        try {
+                            const requests = await buscarSolicitacoesPendentesFirestore(authData.unidadeId);
+                            setPendingRequestsCount(requests.length);
+                            console.log(`✅ ${requests.length} solicitações pendentes encontradas`);
+                        } catch (e) {
+                            console.warn("Erro ao buscar solicitações pendentes:", e);
+                            setPendingRequestsCount(0);
+                        }
                     }
                 };
                 
@@ -2499,7 +2512,15 @@
                                         <div className="fixed inset-0 z-40" onClick={() => setShowUserMenu(false)}></div>
                                         <div className="absolute right-0 top-12 bg-white rounded-xl shadow-2xl border border-gray-100 w-56 py-2 z-50 animate-slide-up">
                                             {authData.role === 'admin' && (
-                                                <button onClick={() => { setShowUserManager(true); setShowUserMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Users size={16} className="text-blue-600"/> Gerenciar Usuários</button>
+                                                <button onClick={() => { setShowUserManager(true); setShowUserMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all relative">
+                                                    <Users size={16} className="text-blue-600"/> 
+                                                    Gerenciar Usuários
+                                                    {pendingRequestsCount > 0 && (
+                                                        <span className="ml-auto bg-red-500 text-white text-xs font-bold px-2 py-0.5 rounded-full animate-pulse">
+                                                            {pendingRequestsCount}
+                                                        </span>
+                                                    )}
+                                                </button>
                                             )}
                                             <button onClick={handleShare} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Share2 size={16} className="text-blue-600"/> Compartilhar</button>
                                             <button onClick={() => { setShowCallingManager(true); setShowUserMenu(false); }} className="w-full text-left px-4 py-3 text-sm text-slate-700 hover:bg-gradient-to-r hover:from-blue-50 hover:to-purple-50 flex items-center gap-3 transition-all"><Settings size={16} className="text-purple-600"/> Chamados</button>
@@ -2530,7 +2551,13 @@
                         )}
 
                         {showCallingManager && <CallingsManager availableCallings={availableCallings} onClose={() => setShowCallingManager(false)} user={authData.user} driveFolderId={authData.driveFolderId} />}
-                        {showUserManager && authData.role === 'admin' && <UserManager unidadeId={authData.unidadeId} unidadeUsers={unidadeUsers} driveFolderId={authData.driveFolderId} onClose={() => setShowUserManager(false)} />}
+                        {showUserManager && authData.role === 'admin' && <UserManager 
+                            unidadeId={authData.unidadeId} 
+                            unidadeUsers={unidadeUsers} 
+                            driveFolderId={authData.driveFolderId} 
+                            onClose={() => setShowUserManager(false)}
+                            onPendingRequestsChange={(count) => setPendingRequestsCount(count)}
+                        />}
                         {showSettings && <SettingsModal onClose={() => setShowSettings(false)} onDeleteUser={handleDeleteUser} user={authData.user} />}
                     </div>
                 </div>
@@ -4527,7 +4554,7 @@
         }
 
         // Componente de Gerenciamento de Usuários
-        function UserManager({ unidadeId, unidadeUsers, driveFolderId, onClose }) {
+        function UserManager({ unidadeId, unidadeUsers, driveFolderId, onClose, onPendingRequestsChange }) {
             const [email, setEmail] = useState('');
             const [loading, setLoading] = useState(false);
             const [error, setError] = useState('');
@@ -4543,9 +4570,17 @@
                         const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
                         setPendingRequests(requests);
                         console.log(`✅ ${requests.length} solicitações pendentes encontradas`);
+                        
+                        // Atualizar contador no componente pai
+                        if (onPendingRequestsChange) {
+                            onPendingRequestsChange(requests.length);
+                        }
                     } catch (e) {
                         console.error('Erro ao carregar solicitações:', e);
                         setPendingRequests([]);
+                        if (onPendingRequestsChange) {
+                            onPendingRequestsChange(0);
+                        }
                     }
                     
                     // Carregar emails convidados do Drive (se disponível)
@@ -4784,9 +4819,17 @@ Equipe Sacramental LDS`);
                     // Se foi uma solicitação pendente, atualizar no Firestore
                     if (requestId) {
                         await atualizarSolicitacaoFirestore(requestId, 'approved');
-                        // Recarregar lista de solicitações
+                    }
+                    
+                    // Recarregar lista de solicitações pendentes
+                    try {
                         const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
                         setPendingRequests(requests);
+                        if (onPendingRequestsChange) {
+                            onPendingRequestsChange(requests.length);
+                        }
+                    } catch (e) {
+                        console.error('Erro ao recarregar solicitações:', e);
                     }
                     
                     // Compartilhar pasta do Drive com o usuário (para dados dos membros)
@@ -4843,8 +4886,15 @@ Equipe Sacramental LDS`);
                     }
                     
                     // Recarregar lista de solicitações pendentes
-                    const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
-                    setPendingRequests(requests);
+                    try {
+                        const requests = await buscarSolicitacoesPendentesFirestore(unidadeId);
+                        setPendingRequests(requests);
+                        if (onPendingRequestsChange) {
+                            onPendingRequestsChange(requests.length);
+                        }
+                    } catch (e) {
+                        console.error('Erro ao recarregar solicitações:', e);
+                    }
                     
                     setSuccess('Solicitação rejeitada.');
                 } catch (e) {
@@ -4997,16 +5047,21 @@ Equipe Sacramental LDS`);
                         </div>
 
                         {/* Lista de Solicitações Pendentes */}
-                        {pendingRequests.length > 0 && (
-                            <div className="mb-6 p-4 bg-blue-50 rounded-xl border-2 border-blue-200">
-                                <h4 className="font-semibold text-sm text-gray-700 mb-2 flex items-center gap-2">
-                                    <Users size={16} className="text-blue-600" />
-                                    Solicitações de Acesso ({pendingRequests.length})
-                                </h4>
-                                <p className="text-xs text-gray-600 mb-3">Usuários que solicitaram acesso à unidade:</p>
+                        {pendingRequests.length > 0 ? (
+                            <div className="mb-6 p-5 bg-gradient-to-r from-blue-50 to-indigo-50 rounded-xl border-2 border-blue-300 shadow-md">
+                                <div className="flex items-center justify-between mb-3">
+                                    <h4 className="font-bold text-base text-gray-900 flex items-center gap-2">
+                                        <AlertCircle size={18} className="text-blue-600" />
+                                        Solicitações de Acesso Pendentes
+                                        <span className="bg-red-500 text-white text-xs font-bold px-2 py-1 rounded-full">
+                                            {pendingRequests.length}
+                                        </span>
+                                    </h4>
+                                </div>
+                                <p className="text-sm text-gray-700 mb-4">Usuários que solicitaram acesso à unidade. Aprove ou rejeite cada solicitação:</p>
                                 <div className="space-y-2">
                                     {pendingRequests.map((request, index) => (
-                                        <div key={index} className="flex justify-between items-center p-3 bg-white border border-blue-200 rounded-xl">
+                                        <div key={request.id || index} className="flex justify-between items-center p-4 bg-white border-2 border-blue-200 rounded-xl shadow-sm hover:shadow-md transition-all">
                                             <div className="flex-1">
                                                 <p className="font-medium text-gray-900">{request.email}</p>
                                                 {request.nome && (
@@ -5059,6 +5114,10 @@ Equipe Sacramental LDS`);
                                         </div>
                                     ))}
                                 </div>
+                            </div>
+                        ) : (
+                            <div className="mb-6 p-4 bg-gray-50 rounded-xl border border-gray-200">
+                                <p className="text-sm text-gray-500 text-center">✅ Nenhuma solicitação de acesso pendente</p>
                             </div>
                         )}
 
