@@ -4643,6 +4643,10 @@
                         // Compartilhar a pasta do Drive com o usuário convidado
                         try {
                             const token = await getGoogleAccessToken();
+                            if (!token) {
+                                console.warn('⚠️ Token do Drive não disponível para compartilhar pasta');
+                                throw new Error('Token do Drive não disponível');
+                            }
                             const shareResponse = await fetch(
                                 `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
                                 {
@@ -4790,6 +4794,10 @@ Equipe Sacramental LDS`);
                         try {
                             await solicitarAcessoDrive();
                             const token = await getGoogleAccessToken();
+                            if (!token) {
+                                console.warn('⚠️ Token do Drive não disponível para compartilhar pasta');
+                                throw new Error('Token do Drive não disponível');
+                            }
                             await fetch(
                                 `${DRIVE_API_BASE}/files/${driveFolderId}/permissions`,
                                 {
@@ -4875,6 +4883,10 @@ Equipe Sacramental LDS`);
                         try {
                             await solicitarAcessoDrive();
                             const token = await getGoogleAccessToken();
+                            if (!token) {
+                                console.warn('⚠️ Token do Drive não disponível para remover compartilhamento');
+                                throw new Error('Token do Drive não disponível');
+                            }
                             
                             // Buscar todas as permissões da pasta
                             const permissionsResponse = await fetch(
