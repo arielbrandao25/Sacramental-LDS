@@ -4825,6 +4825,14 @@ Equipe Sacramental LDS`);
                     setError('');
                     setSuccess('');
                     
+                    // Se requestId não foi fornecido, buscar na lista de solicitações pendentes
+                    if (!requestId) {
+                        const request = pendingRequests.find(r => r.userId === userId);
+                        if (request && request.id) {
+                            requestId = request.id;
+                        }
+                    }
+                    
                     // Buscar dados do usuário do Firestore (forçar refresh para pegar dados atualizados)
                     let userData = await carregarUsuarioFirestore(userId, true);
                     
@@ -4856,7 +4864,7 @@ Equipe Sacramental LDS`);
                     
                     // Salvar no Firestore (isso sobrescreve qualquer status anterior)
                     await salvarUsuarioFirestore(userId, userData);
-                    console.log('✅ Usuário aprovado no Firestore:', userId);
+                    console.log('✅ Usuário aprovado no Firestore:', userId, 'Status:', userData.status);
                     
                     // Atualizar localStorage também
                     localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
@@ -4864,6 +4872,7 @@ Equipe Sacramental LDS`);
                     // Se foi uma solicitação pendente, atualizar no Firestore
                     if (requestId) {
                         await atualizarSolicitacaoFirestore(requestId, 'approved');
+                        console.log('✅ Solicitação atualizada para approved:', requestId);
                     }
                     
                     // Recarregar lista de solicitações pendentes
@@ -4873,12 +4882,10 @@ Equipe Sacramental LDS`);
                         if (onPendingRequestsChange) {
                             onPendingRequestsChange(requests.length);
                         }
+                        console.log('✅ Lista de solicitações recarregada');
                     } catch (e) {
                         console.error('Erro ao recarregar solicitações:', e);
                     }
-                    
-                    setSuccess(`✅ Usuário ${userData.email || userData.nome || userId} aprovado com sucesso!`);
-                    setLoading(false);
                     
                     // Compartilhar pasta do Drive com o usuário (para dados dos membros)
                     if (driveFolderId && userData.email) {
@@ -4905,19 +4912,22 @@ Equipe Sacramental LDS`);
                                     })
                                 }
                             );
+                            console.log('✅ Pasta do Drive compartilhada com:', userData.email);
                         } catch (e) {
                             console.warn('Erro ao compartilhar pasta do Drive (não crítico):', e);
                         }
                     }
                     
-                    setSuccess(`Usuário ${userData.email} aprovado com sucesso!`);
+                    setSuccess(`✅ Usuário ${userData.email || userData.nome || userId} aprovado com sucesso!`);
+                    setLoading(false);
+                    
+                    // Recarregar a página após 1.5 segundos para atualizar tudo
                     setTimeout(() => {
                         window.location.reload();
-                    }, 1000);
+                    }, 1500);
                 } catch (e) {
-                    console.error('Erro ao aprovar usuário:', e);
-                    setError('Erro ao aprovar usuário.');
-                } finally {
+                    console.error('❌ Erro ao aprovar usuário:', e);
+                    setError('Erro ao aprovar usuário: ' + (e.message || 'Tente novamente.'));
                     setLoading(false);
                 }
             };
@@ -5252,15 +5262,6 @@ Equipe Sacramental LDS`);
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-2 ml-3">
-                                                    {u.status === 'pending' && u.role !== 'admin' && (
-                                                        <button
-                                                            onClick={() => handleApprove(u.id)}
-                                                            className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all"
-                                                            title="Aprovar usuário"
-                                                        >
-                                                            Aprovar
-                                                        </button>
-                                                    )}
                                                     {u.role !== 'admin' && (
                                                         <button
                                                             onClick={() => handleRemove(u.id)}
