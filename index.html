@@ -584,11 +584,23 @@
                         // Verificar se o token não expirou
                         if (tokenInfo.expires_in > 0) {
                             return driveAccessToken;
+                        } else {
+                            // Token expirado, remover e solicitar novo
+                            console.warn('⚠️ Token do Drive expirado, solicitando novo...');
+                            localStorage.removeItem('drive_access_token');
+                            driveAccessToken = null;
                         }
+                    } else {
+                        // Token inválido (400 ou outro erro), remover e solicitar novo
+                        console.warn('⚠️ Token do Drive inválido, solicitando novo...');
+                        localStorage.removeItem('drive_access_token');
+                        driveAccessToken = null;
                     }
                 } catch (e) {
-                    // Token inválido, continuar para solicitar novo
-                    console.log("Token inválido, solicitando novo...");
+                    // Erro ao verificar token (network ou outro), remover e solicitar novo
+                    console.warn('⚠️ Erro ao verificar token do Drive, solicitando novo...', e?.message || e);
+                    localStorage.removeItem('drive_access_token');
+                    driveAccessToken = null;
                 }
             }
 
@@ -664,8 +676,7 @@
         const getGoogleAccessToken = async () => {
             // Tentar recuperar do localStorage primeiro
             const storedToken = localStorage.getItem('drive_access_token');
-            if (storedToken) {
-                driveAccessToken = storedToken;
+            if (storedToken && driveAccessToken) {
                 return driveAccessToken;
             }
             
@@ -673,13 +684,23 @@
                 return driveAccessToken;
             }
             
-            return await solicitarAcessoDrive();
+            // Solicitar novo token (solicitarAcessoDrive já valida o token existente)
+            try {
+                return await solicitarAcessoDrive();
+            } catch (e) {
+                // Erro ao solicitar token, retornar null e deixar a função chamadora lidar
+                console.warn('⚠️ Não foi possível obter token do Drive:', e?.message || e);
+                return null;
+            }
         };
 
         // Criar pasta no Drive do admin
         const criarPastaUnidadeDrive = async (nomeUnidade) => {
             try {
                 const token = await getGoogleAccessToken();
+                if (!token) {
+                    throw new Error('Token do Drive não disponível');
+                }
                 
                 const response = await fetch(`${DRIVE_API_BASE}/files`, {
                     method: 'POST',
@@ -706,6 +727,9 @@
         const salvarNoDrive = async (folderId, fileName, data) => {
             try {
                 const token = await getGoogleAccessToken();
+                if (!token) {
+                    throw new Error('Token do Drive não disponível');
+                }
                 
                 // Verificar se arquivo existe
                 const listResponse = await fetch(
@@ -759,6 +783,10 @@
         const carregarDoDrive = async (folderId, fileName) => {
             try {
                 const token = await getGoogleAccessToken();
+                if (!token) {
+                    console.warn('⚠️ Token do Drive não disponível, não é possível carregar do Drive');
+                    return null;
+                }
                 
                 const listResponse = await fetch(
                     `${DRIVE_API_BASE}/files?q=name='${fileName}.json' and '${folderId}' in parents and trashed=false`,
@@ -786,6 +814,11 @@
         const listarArquivosDrive = async (folderId, prefix = '') => {
             try {
                 const token = await getGoogleAccessToken();
+                if (!token) {
+                    console.warn('⚠️ Token do Drive não disponível, não é possível listar arquivos do Drive');
+                    return [];
+                }
+                
                 let query = `'${folderId}' in parents and trashed=false and mimeType='application/json'`;
                 if (prefix) query += ` and name starts with '${prefix}'`;
                 
@@ -832,6 +865,9 @@
         const deletarDoDrive = async (folderId, fileName) => {
             try {
                 const token = await getGoogleAccessToken();
+                if (!token) {
+                    throw new Error('Token do Drive não disponível');
+                }
                 
                 const listResponse = await fetch(
                     `${DRIVE_API_BASE}/files?q=name='${fileName}.json' and '${folderId}' in parents and trashed=false`,
