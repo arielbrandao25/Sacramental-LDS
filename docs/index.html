@@ -302,9 +302,41 @@
                 });
                 return unidades;
             } catch (e) {
-                console.error('❌ Erro ao buscar unidades do Firestore:', e);
+                // Verificar se é erro de índice faltante
+                const isIndexError = e?.code === 'failed-precondition' || 
+                                    e?.message?.includes('index') || 
+                                    e?.message?.includes('requires an index');
+                
+                // Verificar se é erro de permissão
+                const isPermissionError = e?.code === 'permission-denied' || 
+                                         e?.message?.includes('permission') ||
+                                         e?.message?.includes('Missing or insufficient permissions');
+                
+                if (isIndexError) {
+                    console.warn('⚠️ Índice do Firestore não criado ainda. Usando cache do localStorage.');
+                    if (e?.message?.includes('https://console.firebase.google.com')) {
+                        const linkMatch = e.message.match(/https:\/\/[^\s]+/);
+                        if (linkMatch) {
+                            console.info('📊 Para criar o índice, acesse:', linkMatch[0]);
+                        }
+                    }
+                    return buscarUnidadesLocalStorage();
+                }
+                
+                if (isPermissionError) {
+                    console.warn('⚠️ Erro de permissão ao buscar unidades. Verifique as regras de segurança do Firestore.');
+                    console.warn('💡 Dica: As regras devem permitir leitura para usuários autenticados.');
+                    // Tentar usar localStorage mesmo assim
+                    return buscarUnidadesLocalStorage();
+                }
+                
+                console.error('❌ Erro ao buscar unidades do Firestore:', e?.code || e?.message || e);
                 // Fallback para localStorage
-                return buscarUnidadesLocalStorage();
+                const unidadesLocal = buscarUnidadesLocalStorage();
+                if (unidadesLocal.length > 0) {
+                    console.warn('⚠️ Usando cache do localStorage como fallback');
+                }
+                return unidadesLocal;
             }
         };
         
@@ -1194,6 +1226,14 @@
                     console.log('🔍 Buscando unidades disponíveis no Firestore...');
                     const unidades = await buscarTodasUnidadesFirestore();
                     console.log(`✅ ${unidades.length} unidades encontradas`);
+                    
+                    if (unidades.length === 0) {
+                        console.warn('⚠️ Nenhuma unidade encontrada. Verifique:');
+                        console.warn('   1. Se o Firestore está configurado corretamente');
+                        console.warn('   2. Se as regras de segurança permitem leitura');
+                        console.warn('   3. Se há unidades cadastradas no Firestore');
+                    }
+                    
                     return unidades.map(u => ({
                         id: u.id,
                         nome: u.nome || 'Unidade',
@@ -1203,6 +1243,7 @@
                     }));
                 } catch (e) {
                     console.error('❌ Erro ao buscar unidades:', e);
+                    console.error('Detalhes:', e?.code, e?.message);
                     return [];
                 }
             };
@@ -1804,17 +1845,34 @@
                                 
                                 {!loading && availableUnits.length === 0 && (
                                     <div className="text-center py-8">
-                                        <p className="text-gray-500 mb-4">Nenhuma unidade encontrada.</p>
-                                        <button
-                                            onClick={() => {
-                                                setLoggedInUser(null);
-                                                setAvailableUnits([]);
-                                                setMode('createUnit');
-                                            }}
-                                            className="bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-xl font-semibold hover:shadow-lg transition-all"
-                                        >
-                                            Criar Nova Unidade
-                                        </button>
+                                        <Users size={48} className="mx-auto text-gray-400 mb-4" />
+                                        <p className="text-gray-700 font-semibold mb-2">Nenhuma unidade encontrada</p>
+                                        <p className="text-sm text-gray-500 mb-4">
+                                            Não há unidades cadastradas no sistema ou você não tem permissão para visualizá-las.
+                                        </p>
+                                        <div className="space-y-2">
+                                            <button
+                                                onClick={() => {
+                                                    setLoggedInUser(null);
+                                                    setAvailableUnits([]);
+                                                    setMode('createUnit');
+                                                }}
+                                                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 text-white px-4 py-2 rounded-xl font-semibold hover:shadow-lg transition-all"
+                                            >
+                                                Criar Nova Unidade
+                                            </button>
+                                            <button
+                                                onClick={async () => {
+                                                    setLoading(true);
+                                                    const unidades = await buscarUnidadesDisponiveis();
+                                                    setAvailableUnits(unidades);
+                                                    setLoading(false);
+                                                }}
+                                                className="w-full bg-gray-100 text-gray-700 px-4 py-2 rounded-xl font-semibold hover:bg-gray-200 transition-all"
+                                            >
+                                                Tentar Novamente
+                                            </button>
+                                        </div>
                                     </div>
                                 )}
                                 
