@@ -25,15 +25,16 @@ Cole as seguintes regras no editor:
 rules_version = '2';
 service cloud.firestore {
   match /databases/{database}/documents {
-    // Regra para coleção de unidades - permitir leitura para usuários autenticados
+    // Regra para coleção de unidades
     match /unidades/{unidadeId} {
       // Qualquer usuário autenticado pode ler unidades
       allow read: if request.auth != null;
-      // Apenas o criador da unidade ou admin pode escrever
-      allow write: if request.auth != null && 
-                     (request.auth.uid == resource.data.adminId || 
-                      request.auth.uid == request.resource.data.adminId ||
-                      resource.data.adminEmail == request.auth.token.email);
+      // Qualquer usuário autenticado pode criar unidades
+      allow create: if request.auth != null;
+      // Apenas o criador da unidade ou admin pode atualizar/deletar
+      allow update, delete: if request.auth != null && 
+                              (request.auth.uid == resource.data.criadoPor || 
+                               request.auth.token.email == resource.data.adminEmail);
     }
     
     // Regra para coleção de usuários
