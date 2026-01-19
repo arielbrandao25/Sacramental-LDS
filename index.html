@@ -619,20 +619,19 @@
                         if (tokenInfo.expires_in > 0) {
                             return driveAccessToken;
                         } else {
-                            // Token expirado, remover e solicitar novo
-                            console.warn('⚠️ Token do Drive expirado, solicitando novo...');
+                            // Token expirado, remover e solicitar novo (silenciosamente)
                             localStorage.removeItem('drive_access_token');
                             driveAccessToken = null;
                         }
                     } else {
-                        // Token inválido (400 ou outro erro), remover e solicitar novo
-                        console.warn('⚠️ Token do Drive inválido, solicitando novo...');
+                        // Token inválido (400 ou outro erro), remover e solicitar novo (silenciosamente)
+                        // 400 é esperado quando o token está expirado/inválido, não é um erro crítico
                         localStorage.removeItem('drive_access_token');
                         driveAccessToken = null;
                     }
                 } catch (e) {
-                    // Erro ao verificar token (network ou outro), remover e solicitar novo
-                    console.warn('⚠️ Erro ao verificar token do Drive, solicitando novo...', e?.message || e);
+                    // Erro ao verificar token (network ou outro), remover e solicitar novo (silenciosamente)
+                    // Não logar como erro crítico - é esperado que tokens expiram
                     localStorage.removeItem('drive_access_token');
                     driveAccessToken = null;
                 }
