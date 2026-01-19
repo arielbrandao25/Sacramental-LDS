@@ -1389,46 +1389,25 @@
             const processarLoginSucesso = async (user) => {
                 setLoading(true);
                 try {
-                    // Buscar dados do usuário no Firestore
-                    let userData = await carregarUsuarioFirestore(user.uid);
+                    // Buscar dados do usuário no Firestore (forçar refresh para pegar status mais recente)
+                    let userData = await carregarUsuarioFirestore(user.uid, true);
                     
-                    // Se não encontrou no Firestore, criar dados do Firebase Auth e salvar
+                    // Se não encontrou, criar novo registro
                     if (!userData) {
-                        // Verificar localStorage primeiro (migração)
-                        const userDataStr = localStorage.getItem(`user_${user.uid}`);
-                        if (userDataStr) {
-                            try {
-                                userData = JSON.parse(userDataStr);
-                                // Migrar para Firestore
-                                if (userData) {
-                                    await salvarUsuarioFirestore(user.uid, userData);
-                                    console.log('✅ Usuário migrado do localStorage para Firestore');
-                                }
-                            } catch (e) {
-                                console.warn('Erro ao parsear dados do localStorage:', e);
-                            }
-                        }
+                        const newUserData = {
+                            id: user.uid,
+                            email: user.email,
+                            nome: user.displayName || user.email?.split('@')[0],
+                            criadoEm: new Date().toISOString(),
+                            atualizadoEm: new Date().toISOString()
+                        };
                         
-                        // Se ainda não encontrou, criar novo registro no Firestore
-                        if (!userData) {
-                            const newUserData = {
-                                id: user.uid,
-                                email: user.email,
-                                nome: user.displayName || user.email?.split('@')[0],
-                                criadoEm: new Date().toISOString(),
-                                atualizadoEm: new Date().toISOString()
-                            };
-                            
-                            // Salvar no Firestore
-                            await salvarUsuarioFirestore(user.uid, newUserData);
-                            console.log('✅ Novo usuário salvo no Firestore:', user.uid);
-                            userData = newUserData;
-                        }
+                        await salvarUsuarioFirestore(user.uid, newUserData);
+                        console.log('✅ Novo usuário salvo no Firestore:', user.uid);
+                        userData = newUserData;
                     } else {
-                        // Usuário já existe no Firestore, atualizar dados se necessário
-                        const needsUpdate = !userData.email || 
-                                          !userData.nome || 
-                                          (user.email && userData.email !== user.email) ||
+                        // Atualizar dados se necessário (email/nome), mas manter status e unidadeId
+                        const needsUpdate = (user.email && userData.email !== user.email) ||
                                           (user.displayName && userData.nome !== user.displayName);
                         
                         if (needsUpdate) {
@@ -1441,6 +1420,23 @@
                             await salvarUsuarioFirestore(user.uid, updatedData);
                             console.log('✅ Dados do usuário atualizados no Firestore');
                             userData = updatedData;
+                        }
+                        
+                        // Se tem unidadeId mas status não é approved, verificar novamente no Firestore
+                        // (o usuário pode ter sido aprovado recentemente pelo admin)
+                        if (userData.unidadeId && userData.status !== 'approved') {
+                            console.log('⚠️ Usuário tem unidade mas status não é approved. Verificando novamente no Firestore...');
+                            // Forçar refresh para pegar status atualizado
+                            const refreshedData = await carregarUsuarioFirestore(user.uid, true);
+                            if (refreshedData) {
+                                console.log('📋 Status atual do Firestore:', refreshedData.status);
+                                if (refreshedData.status === 'approved') {
+                                    userData = refreshedData;
+                                    console.log('✅ Status atualizado para approved após refresh');
+                                    // Atualizar localStorage também
+                                    localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                                }
+                            }
                         }
                     }
                     
