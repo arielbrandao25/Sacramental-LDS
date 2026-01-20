@@ -2539,15 +2539,28 @@
                         console.error('Erro no listener de attendance:', error);
                     });
                     
-                    // Carregar callings do Drive (ainda não migrado para Firestore)
-                    if (authData.driveFolderId) {
-                        listarArquivosDrive(authData.driveFolderId, 'calling_').then(callingsData => {
-                            const sorted = callingsData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-                            setAvailableCallings(sorted);
-                        }).catch(e => {
-                            console.warn("Erro ao carregar callings do Drive:", e);
+                    // Listener para chamados (sincronização em tempo real)
+                    const callingsRef = collection(db, 'unidades', unidadeId, 'chamados');
+                    unsubscribeCallings = onSnapshot(callingsRef, (snapshot) => {
+                        const callingsData = [];
+                        snapshot.forEach((doc) => {
+                            callingsData.push({ id: doc.id, ...doc.data() });
                         });
-                    }
+                        const sorted = callingsData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+                        setAvailableCallings(sorted);
+                        console.log(`✅ ${sorted.length} chamados sincronizados em tempo real`);
+                    }, (error) => {
+                        console.error('Erro no listener de chamados:', error);
+                        // Fallback: tentar carregar do Drive
+                        if (authData.driveFolderId) {
+                            listarArquivosDrive(authData.driveFolderId, 'calling_').then(callingsData => {
+                                const sorted = callingsData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+                                setAvailableCallings(sorted);
+                            }).catch(e => {
+                                console.warn("Erro ao carregar callings do Drive:", e);
+                            });
+                        }
+                    });
                 } catch (e) {
                     console.error("Erro ao configurar listeners do Firestore:", e);
                     // Fallback: tentar carregar do Drive
@@ -2564,6 +2577,7 @@
                     if (unsubscribeMembers) unsubscribeMembers();
                     if (unsubscribeAssignments) unsubscribeAssignments();
                     if (unsubscribeAttendance) unsubscribeAttendance();
+                    if (unsubscribeCallings) unsubscribeCallings();
                 };
             }, [authData?.unidadeId, authData?.driveFolderId]);
 
