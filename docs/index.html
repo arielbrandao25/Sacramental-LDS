@@ -4836,25 +4836,38 @@ Equipe Sacramental LDS`);
                     // Buscar dados do usuário do Firestore (forçar refresh para pegar dados atualizados)
                     let userData = await carregarUsuarioFirestore(userId, true);
                     
-                    // Se não encontrou, criar dados básicos do usuário a partir da solicitação
+                    // Se não encontrou, tentar buscar da lista de usuários da unidade ou da solicitação
                     if (!userData) {
-                        // Buscar dados da solicitação
-                        const request = pendingRequests.find(r => r.userId === userId);
-                        if (!request) {
-                            setError('Solicitação não encontrada.');
-                            setLoading(false);
-                            return;
+                        // Primeiro, tentar buscar da lista de usuários da unidade
+                        const userInList = unidadeUsers.find(u => u.id === userId);
+                        if (userInList) {
+                            userData = userInList;
+                        } else {
+                            // Se não encontrou na lista, tentar buscar da solicitação pendente
+                            const request = pendingRequests.find(r => r.userId === userId);
+                            if (request) {
+                                userData = {
+                                    id: userId,
+                                    email: request.email,
+                                    nome: request.nome || request.email.split('@')[0],
+                                    unidadeId: unidadeId,
+                                    role: 'user',
+                                    status: 'pending',
+                                    criadoEm: request.criadoEm?.toDate ? request.criadoEm.toDate().toISOString() : (request.criadoEm || new Date().toISOString())
+                                };
+                            } else {
+                                setError('Usuário não encontrado. Verifique se o usuário existe.');
+                                setLoading(false);
+                                return;
+                            }
                         }
-                        
-                        userData = {
-                            id: userId,
-                            email: request.email,
-                            nome: request.nome || request.email.split('@')[0],
-                            unidadeId: unidadeId,
-                            role: 'user',
-                            status: 'pending',
-                            criadoEm: request.criadoEm?.toDate ? request.criadoEm.toDate().toISOString() : (request.criadoEm || new Date().toISOString())
-                        };
+                    }
+                    
+                    // Garantir que temos os dados mínimos necessários
+                    if (!userData.email) {
+                        setError('Dados do usuário incompletos. Não é possível aprovar.');
+                        setLoading(false);
+                        return;
                     }
                     
                     // Atualizar status do usuário para aprovado no Firestore
@@ -4886,6 +4899,16 @@ Equipe Sacramental LDS`);
                     } catch (e) {
                         console.error('Erro ao recarregar solicitações:', e);
                     }
+                    
+                    // Atualizar a lista de usuários localmente (atualizar o status do usuário aprovado)
+                    const updatedUsers = unidadeUsers.map(u => {
+                        if (u.id === userId) {
+                            return { ...u, status: 'approved', atualizadoEm: new Date().toISOString() };
+                        }
+                        return u;
+                    });
+                    // Note: não podemos usar setUnidadeUsers aqui porque unidadeUsers é um prop
+                    // A lista será atualizada quando a página recarregar
                     
                     // Compartilhar pasta do Drive com o usuário (para dados dos membros)
                     if (driveFolderId && userData.email) {
@@ -5253,6 +5276,16 @@ Equipe Sacramental LDS`);
                                                     </div>
                                                 </div>
                                                 <div className="flex items-center gap-2 ml-3">
+                                                    {u.status === 'pending' && u.role !== 'admin' && (
+                                                        <button
+                                                            onClick={() => handleApprove(u.id)}
+                                                            disabled={loading}
+                                                            className="bg-green-600 text-white px-3 py-1.5 rounded-lg text-xs font-semibold hover:bg-green-700 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
+                                                            title="Aprovar usuário"
+                                                        >
+                                                            {loading ? 'Aprovando...' : 'Aprovar'}
+                                                        </button>
+                                                    )}
                                                     {u.role !== 'admin' && (
                                                         <button
                                                             onClick={() => handleRemove(u.id)}
