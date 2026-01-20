@@ -4401,14 +4401,20 @@
             
             // Relatório detalhado por membro (deve vir antes de analiseIA)
             const membersReport = useMemo(() => {
+                console.log('📊 Gerando relatório de membros...');
+                console.log('📋 Total de registros de attendance:', attendance.length);
+                console.log('👥 Total de membros:', members.length);
+                
                 // Obter todas as datas de frequência registradas (compatibilidade com Firestore e Drive)
                 const todasDatas = attendance
                     .map(a => a.date || a.id)
                     .filter(Boolean)
                     .sort();
                 
+                console.log('📅 Datas de frequência encontradas:', todasDatas);
+                
                 // Para cada membro, calcular presenças e faltas
-                return members
+                const resultado = members
                     .filter(m => m.type !== 'visitor')
                     .map(member => {
                         const presencas = [];
@@ -4434,7 +4440,28 @@
                             
                             // Procurar por id ou date (compatibilidade com Firestore e Drive)
                             const attRecord = attendance.find(a => a.id === dateStr || a.date === dateStr);
-                            const estevePresente = attRecord?.attendees?.includes(member.id) || false;
+                            
+                            if (!attRecord) {
+                                // Não logar warning para cada data, apenas se realmente não houver registros
+                                return;
+                            }
+                            
+                            // Verificar se o membro está presente
+                            // Converter ambos para string para garantir comparação correta
+                            const memberIdStr = String(member.id);
+                            const attendeesArray = attRecord?.attendees || [];
+                            
+                            // Verificar se o membro está presente (comparar como strings)
+                            const estevePresente = attendeesArray.some(id => String(id) === memberIdStr);
+                            
+                            // Debug detalhado apenas para o primeiro membro e primeira data
+                            if (member.id === members.filter(m => m.type !== 'visitor')[0]?.id && dateStr === todasDatas[0]) {
+                                console.log(`🔍 Debug para ${member.name} (ID: ${memberIdStr}) na data ${dateStr}:`);
+                                console.log('  - attRecord:', attRecord);
+                                console.log('  - attendees (original):', attendeesArray);
+                                console.log('  - attendees (como strings):', attendeesArray.map(id => String(id)));
+                                console.log('  - estevePresente:', estevePresente);
+                            }
                             
                             const dataFormatada = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', {
                                 day: '2-digit',
@@ -4459,6 +4486,9 @@
                         };
                     })
                     .sort((a, b) => a.name.localeCompare(b.name));
+                
+                console.log('✅ Relatório gerado:', resultado.length, 'membros processados');
+                return resultado;
             }, [members, attendance]);
             
             // Análise de IA para identificar organizações com maior/menor dificuldade
