@@ -4454,6 +4454,9 @@
                         const dataCriacaoMembro = member.criadoEm || member.createdAt || member.created_at;
                         const dataCriacao = dataCriacaoMembro ? new Date(dataCriacaoMembro) : null;
                         
+                        console.log(`\n🔄 Processando membro: ${member.name} (ID: ${member.id})`);
+                        console.log(`   Data de criação: ${dataCriacaoMembro || 'não definida'}`);
+                        
                         todasDatas.forEach(dateStr => {
                             // Se o membro tem data de criação, só considerar datas a partir dessa data
                             if (dataCriacao) {
@@ -4464,6 +4467,7 @@
                                 
                                 // Se a data da frequência é anterior à data de criação do membro, ignorar
                                 if (dataAtualNormalizada < dataCriacaoNormalizada) {
+                                    console.log(`   ⏭️  Pulando data ${dateStr} (anterior à criação do membro)`);
                                     return; // Pula esta data, não conta como presença nem falta
                                 }
                             }
@@ -4472,7 +4476,7 @@
                             const attRecord = attendanceArray.find(a => a?.id === dateStr || a?.date === dateStr);
                             
                             if (!attRecord) {
-                                // Não logar warning para cada data, apenas se realmente não houver registros
+                                console.log(`   ⚠️  Nenhum registro encontrado para data ${dateStr}`);
                                 return;
                             }
                             
@@ -4481,22 +4485,22 @@
                             const memberIdStr = String(member.id);
                             const attendeesArray = attRecord?.attendees || [];
                             
-                            // Verificar se o membro está presente (comparar como strings)
-                            const estevePresente = attendeesArray.some(id => String(id) === memberIdStr);
-                            
-                            // Debug detalhado para todos os membros e todas as datas
-                            console.log(`🔍 ${member.name} (ID: ${memberIdStr}) na data ${dateStr}:`);
-                            console.log('  - attendees array:', attendeesArray);
-                            console.log('  - attendees como strings:', attendeesArray.map(id => String(id)));
-                            console.log('  - member.id como string:', memberIdStr);
-                            console.log('  - estevePresente:', estevePresente);
-                            
-                            // Tentar diferentes formas de comparação para debug
+                            // Tentar diferentes formas de comparação
                             const comparacao1 = attendeesArray.includes(member.id);
                             const comparacao2 = attendeesArray.includes(memberIdStr);
                             const comparacao3 = attendeesArray.some(id => id == member.id); // == em vez de ===
                             const comparacao4 = attendeesArray.some(id => String(id) === memberIdStr);
-                            console.log('  - Comparações:', { comparacao1, comparacao2, comparacao3, comparacao4 });
+                            
+                            // Usar a comparação mais robusta (qualquer uma que funcione)
+                            const estevePresente = comparacao1 || comparacao2 || comparacao3 || comparacao4;
+                            
+                            // Debug detalhado
+                            console.log(`   📅 Data: ${dateStr}`);
+                            console.log(`      - attendees array:`, attendeesArray);
+                            console.log(`      - member.id: ${member.id} (tipo: ${typeof member.id})`);
+                            console.log(`      - member.id como string: ${memberIdStr}`);
+                            console.log(`      - Comparações:`, { comparacao1, comparacao2, comparacao3, comparacao4 });
+                            console.log(`      - ✅ Esteve presente: ${estevePresente}`);
                             
                             const dataFormatada = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', {
                                 day: '2-digit',
@@ -4506,10 +4510,14 @@
                             
                             if (estevePresente) {
                                 presencas.push(dataFormatada);
+                                console.log(`      ✅ Adicionado às presenças`);
                             } else {
                                 faltas.push(dataFormatada);
+                                console.log(`      ❌ Adicionado às faltas`);
                             }
                         });
+                        
+                        console.log(`   📊 Resultado final: ${presencas.length} presenças, ${faltas.length} faltas\n`);
                         
                         return {
                             ...member,
