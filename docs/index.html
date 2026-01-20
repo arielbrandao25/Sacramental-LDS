@@ -2557,6 +2557,10 @@
                         console.log(`🔄 Listener de attendance acionado: ${attendanceData.length} registros`);
                         console.log('📊 Dados de attendance:', attendanceData);
                         setAttendance(attendanceData);
+                        
+                        // Atualizar cache do localStorage
+                        localStorage.setItem(`attendance_${unidadeId}`, JSON.stringify(attendanceData));
+                        
                         console.log(`✅ ${attendanceData.length} attendance sincronizados em tempo real`);
                     }, (error) => {
                         console.error('❌ Erro no listener de attendance:', error);
@@ -2567,6 +2571,13 @@
                             setAttendance(cached);
                         }
                     });
+                    
+                    // Carregar dados iniciais do localStorage enquanto o listener não carrega
+                    const cachedAttendance = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
+                    if (cachedAttendance.length > 0) {
+                        console.log('📦 Carregando attendance do cache inicial:', cachedAttendance.length, 'registros');
+                        setAttendance(cachedAttendance);
+                    }
                     
                     // Listener para chamados (sincronização em tempo real)
                     const callingsRef = collection(db, 'unidades', unidadeId, 'chamados');
