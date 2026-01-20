@@ -616,8 +616,13 @@
                     atualizadoEm: new Date().toISOString()
                 };
                 
-                if (!memberData.criadoEm) {
+                if (!memberData.criadoEm && !memberData.createdAt) {
                     dataToSave.criadoEm = new Date().toISOString();
+                    dataToSave.createdAt = dataToSave.criadoEm; // Compatibilidade
+                } else if (memberData.createdAt && !memberData.criadoEm) {
+                    dataToSave.criadoEm = memberData.createdAt; // Converter createdAt para criadoEm
+                } else if (memberData.criadoEm && !memberData.createdAt) {
+                    dataToSave.createdAt = memberData.criadoEm; // Converter criadoEm para createdAt
                 }
                 
                 await setDoc(memberRef, dataToSave, { merge: true });
@@ -3582,7 +3587,13 @@
                     } catch (e) {
                         console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
                         // Fallback para Drive
-                        await salvarNoDrive(driveFolderId, fileName, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
+                        const dataComDataCriacao = { 
+                            ...dataToSave, 
+                            id: memberId, 
+                            createdAt: new Date().toISOString(),
+                            criadoEm: new Date().toISOString() // Garantir ambos os campos
+                        };
+                        await salvarNoDrive(driveFolderId, fileName, dataComDataCriacao);
                     }
                     setForm({ name: '', calling: '', type: 'member', gender: '', birthDate: '' });
                     setDuplicateWarning(null);
@@ -4403,7 +4414,20 @@
                         const presencas = [];
                         const faltas = [];
                         
+                        // Obter data de criação do membro (criadoEm ou createdAt)
+                        const dataCriacaoMembro = member.criadoEm || member.createdAt || member.created_at;
+                        const dataCriacao = dataCriacaoMembro ? new Date(dataCriacaoMembro) : null;
+                        
                         todasDatas.forEach(dateStr => {
+                            // Se o membro tem data de criação, só considerar datas a partir dessa data
+                            if (dataCriacao) {
+                                const dataAtual = new Date(dateStr + 'T12:00:00');
+                                // Se a data da frequência é anterior à data de criação do membro, ignorar
+                                if (dataAtual < dataCriacao) {
+                                    return; // Pula esta data, não conta como presença nem falta
+                                }
+                            }
+                            
                             // Procurar por id ou date (compatibilidade com Firestore e Drive)
                             const attRecord = attendance.find(a => a.id === dateStr || a.date === dateStr);
                             const estevePresente = attRecord?.attendees?.includes(member.id) || false;
