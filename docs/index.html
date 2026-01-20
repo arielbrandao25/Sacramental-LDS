@@ -3304,7 +3304,14 @@
             const save = async () => {
                 try {
                     const dataToSave = { date: dateStr, attendees: ids, count: ids.length };
-                    await salvarNoDrive(driveFolderId, `attendance_${dateStr}`, dataToSave);
+                    // Salvar no Firestore primeiro (sincronização em tempo real)
+                    try {
+                        await salvarAttendanceFirestore(unidadeId, dateStr, dataToSave);
+                    } catch (e) {
+                        console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                        // Fallback para Drive
+                        await salvarNoDrive(driveFolderId, `attendance_${dateStr}`, dataToSave);
+                    }
                     alert("Frequência salva com sucesso!");
                 } catch (e) {
                     console.error(e);
