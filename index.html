@@ -678,29 +678,34 @@
                 }
                 
                 const attendanceRef = doc(db, 'unidades', unidadeId, 'attendance', dateStr);
-                const dataToSave = {
+                
+                // Garantir que os dados estão completos
+                const finalData = {
                     ...attendanceData,
                     id: dateStr,
                     date: dateStr,
                     unidadeId: unidadeId,
-                    atualizadoEm: new Date().toISOString()
+                    attendees: attendanceData.attendees || [],
+                    count: attendanceData.count || (attendanceData.attendees?.length || 0),
+                    atualizadoEm: new Date().toISOString(),
+                    criadoEm: attendanceData.criadoEm || new Date().toISOString()
                 };
                 
-                await setDoc(attendanceRef, dataToSave, { merge: true });
+                await setDoc(attendanceRef, finalData, { merge: true });
                 console.log('✅ Attendance salvo no Firestore:', dateStr);
-                console.log('📊 Dados salvos:', dataToSave);
+                console.log('📊 Dados salvos:', finalData);
                 console.log('📍 Caminho do documento:', `unidades/${unidadeId}/attendance/${dateStr}`);
                 
                 // Backup no localStorage
                 const attendanceCache = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
                 const index = attendanceCache.findIndex(a => a.id === dateStr || a.date === dateStr);
                 if (index >= 0) {
-                    attendanceCache[index] = dataToSave;
+                    attendanceCache[index] = finalData;
                 } else {
-                    attendanceCache.push(dataToSave);
+                    attendanceCache.push(finalData);
                 }
                 localStorage.setItem(`attendance_${unidadeId}`, JSON.stringify(attendanceCache));
-                console.log('💾 Backup salvo no localStorage');
+                console.log('💾 Backup salvo no localStorage:', attendanceCache.length, 'registros');
             } catch (e) {
                 console.error('❌ Erro ao salvar attendance no Firestore:', e);
                 throw e;
