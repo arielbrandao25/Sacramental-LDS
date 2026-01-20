@@ -5678,9 +5678,16 @@ Equipe Sacramental LDS`);
                                 <div key={c.id} className="flex justify-between items-center p-3 border-b border-gray-100 hover:bg-gray-50 rounded-lg transition-all">
                                     <span className="font-medium text-gray-700">{c.name}</span>
                                     <button 
-                                        onClick={()=>{
-                                            const fileName = c.id.startsWith('calling_') ? c.id : `calling_${c.id}`;
-                                            deletarDoDrive(driveFolderId, fileName);
+                                        onClick={async ()=>{
+                                            // Deletar do Firestore primeiro
+                                            try {
+                                                await deletarChamadoFirestore(unidadeId, c.id);
+                                            } catch (e) {
+                                                console.warn('Erro ao deletar do Firestore, tentando Drive:', e);
+                                                // Fallback para Drive
+                                                const fileName = c.id.startsWith('calling_') ? c.id : `calling_${c.id}`;
+                                                await deletarDoDrive(driveFolderId, fileName);
+                                            }
                                         }}
                                         className="text-gray-400 hover:text-red-500 transition-all p-1 rounded-full hover:bg-red-50"
                                     >
