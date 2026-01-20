@@ -3582,17 +3582,17 @@
                     const fileName = `member_${memberId}`;
                     const dataToSave = forcar ? duplicateWarning.newData : form;
                     // Salvar no Firestore primeiro (sincronização em tempo real)
+                    const dataComDataCriacao = { 
+                        ...dataToSave, 
+                        id: memberId, 
+                        createdAt: new Date().toISOString(),
+                        criadoEm: new Date().toISOString() // Garantir ambos os campos para compatibilidade
+                    };
                     try {
-                        await salvarMembroFirestore(unidadeId, memberId, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
+                        await salvarMembroFirestore(unidadeId, memberId, dataComDataCriacao);
                     } catch (e) {
                         console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
                         // Fallback para Drive
-                        const dataComDataCriacao = { 
-                            ...dataToSave, 
-                            id: memberId, 
-                            createdAt: new Date().toISOString(),
-                            criadoEm: new Date().toISOString() // Garantir ambos os campos
-                        };
                         await salvarNoDrive(driveFolderId, fileName, dataComDataCriacao);
                     }
                     setForm({ name: '', calling: '', type: 'member', gender: '', birthDate: '' });
