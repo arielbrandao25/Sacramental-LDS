@@ -2548,35 +2548,62 @@
                     
                     // Listener para attendance (sincronização em tempo real)
                     const attendanceRef = collection(db, 'unidades', unidadeId, 'attendance');
-                    unsubscribeAttendance = onSnapshot(attendanceRef, (snapshot) => {
-                        const attendanceData = [];
-                        snapshot.forEach((doc) => {
-                            const data = { id: doc.id, ...doc.data() };
-                            attendanceData.push(data);
-                        });
-                        console.log(`🔄 Listener de attendance acionado: ${attendanceData.length} registros`);
-                        console.log('📊 Dados de attendance:', attendanceData);
-                        setAttendance(attendanceData);
-                        
-                        // Atualizar cache do localStorage
-                        localStorage.setItem(`attendance_${unidadeId}`, JSON.stringify(attendanceData));
-                        
-                        console.log(`✅ ${attendanceData.length} attendance sincronizados em tempo real`);
-                    }, (error) => {
-                        console.error('❌ Erro no listener de attendance:', error);
-                        // Fallback: tentar carregar do localStorage
-                        const cached = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
-                        if (cached.length > 0) {
-                            console.warn('⚠️ Usando cache do localStorage para attendance');
-                            setAttendance(cached);
+                    console.log('🔌 Configurando listener de attendance para unidade:', unidadeId);
+                    
+                    unsubscribeAttendance = onSnapshot(
+                        attendanceRef, 
+                        (snapshot) => {
+                            const attendanceData = [];
+                            snapshot.forEach((doc) => {
+                                const docData = doc.data();
+                                const data = { 
+                                    id: doc.id, 
+                                    date: docData.date || doc.id,
+                                    attendees: docData.attendees || [],
+                                    count: docData.count || (docData.attendees?.length || 0),
+                                    ...docData 
+                                };
+                                attendanceData.push(data);
+                            });
+                            
+                            // Ordenar por data (mais recente primeiro)
+                            attendanceData.sort((a, b) => {
+                                const dateA = a.date || a.id || '';
+                                const dateB = b.date || b.id || '';
+                                return dateB.localeCompare(dateA);
+                            });
+                            
+                            console.log(`🔄 Listener de attendance acionado: ${attendanceData.length} registros`);
+                            console.log('📊 Dados de attendance recebidos:', attendanceData);
+                            
+                            setAttendance(attendanceData);
+                            
+                            // Atualizar cache do localStorage
+                            localStorage.setItem(`attendance_${unidadeId}`, JSON.stringify(attendanceData));
+                            console.log(`✅ ${attendanceData.length} attendance sincronizados em tempo real e salvos no cache`);
+                        }, 
+                        (error) => {
+                            console.error('❌ Erro no listener de attendance:', error);
+                            console.error('❌ Detalhes do erro:', error.code, error.message);
+                            
+                            // Fallback: tentar carregar do localStorage
+                            const cached = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
+                            if (cached.length > 0) {
+                                console.warn('⚠️ Usando cache do localStorage para attendance:', cached.length, 'registros');
+                                setAttendance(cached);
+                            } else {
+                                console.warn('⚠️ Nenhum dado de attendance encontrado no cache');
+                            }
                         }
-                    });
+                    );
                     
                     // Carregar dados iniciais do localStorage enquanto o listener não carrega
                     const cachedAttendance = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
                     if (cachedAttendance.length > 0) {
                         console.log('📦 Carregando attendance do cache inicial:', cachedAttendance.length, 'registros');
                         setAttendance(cachedAttendance);
+                    } else {
+                        console.log('📦 Nenhum dado de attendance no cache inicial');
                     }
                     
                     // Listener para chamados (sincronização em tempo real)
