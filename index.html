@@ -690,6 +690,17 @@
                 console.log('✅ Attendance salvo no Firestore:', dateStr);
                 console.log('📊 Dados salvos:', dataToSave);
                 console.log('📍 Caminho do documento:', `unidades/${unidadeId}/attendance/${dateStr}`);
+                
+                // Backup no localStorage
+                const attendanceCache = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
+                const index = attendanceCache.findIndex(a => a.id === dateStr || a.date === dateStr);
+                if (index >= 0) {
+                    attendanceCache[index] = dataToSave;
+                } else {
+                    attendanceCache.push(dataToSave);
+                }
+                localStorage.setItem(`attendance_${unidadeId}`, JSON.stringify(attendanceCache));
+                console.log('💾 Backup salvo no localStorage');
             } catch (e) {
                 console.error('❌ Erro ao salvar attendance no Firestore:', e);
                 throw e;
