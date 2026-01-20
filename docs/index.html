@@ -4291,7 +4291,8 @@
                         const faltas = [];
                         
                         todasDatas.forEach(dateStr => {
-                            const attRecord = attendance.find(a => a.id === dateStr);
+                            // Procurar por id ou date (compatibilidade com Firestore e Drive)
+                            const attRecord = attendance.find(a => a.id === dateStr || a.date === dateStr);
                             const estevePresente = attRecord?.attendees?.includes(member.id) || false;
                             
                             const dataFormatada = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', {
