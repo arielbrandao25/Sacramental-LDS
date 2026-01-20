@@ -182,7 +182,7 @@
         import { createRoot } from 'react-dom/client';
         import { initializeApp } from 'firebase/app';
         import { getAuth, GoogleAuthProvider, signInWithPopup, signInWithEmailAndPassword, createUserWithEmailAndPassword, onAuthStateChanged, signOut, deleteUser } from 'firebase/auth';
-        import { getFirestore, collection, doc, getDoc, setDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy } from 'firebase/firestore';
+        import { getFirestore, collection, doc, getDoc, setDoc, getDocs, updateDoc, deleteDoc, query, where, orderBy, onSnapshot } from 'firebase/firestore';
         import { 
             Calendar, Users, UserPlus, Save, Trash2, AlertCircle, Check, 
             ChevronLeft, ChevronRight, ChevronDown, Search, BookOpen, 
@@ -597,6 +597,114 @@
         const buscarSolicitacoesLocalStorage = (unidadeId) => {
             const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
             return solicitacoes.filter(s => s.unidadeId === unidadeId && s.status === 'pending');
+        };
+        
+        // --- FUNÇÕES FIRESTORE PARA MEMBROS, ASSIGNMENTS E ATTENDANCE (Sincronização em Tempo Real) ---
+        
+        // Salvar membro no Firestore
+        const salvarMembroFirestore = async (unidadeId, memberId, memberData) => {
+            try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
+                const memberRef = doc(db, 'unidades', unidadeId, 'membros', memberId);
+                const dataToSave = {
+                    ...memberData,
+                    id: memberId,
+                    unidadeId: unidadeId,
+                    atualizadoEm: new Date().toISOString()
+                };
+                
+                if (!memberData.criadoEm) {
+                    dataToSave.criadoEm = new Date().toISOString();
+                }
+                
+                await setDoc(memberRef, dataToSave, { merge: true });
+                console.log('✅ Membro salvo no Firestore:', memberId);
+                
+                // Backup no localStorage
+                const membersCache = JSON.parse(localStorage.getItem(`members_${unidadeId}`) || '[]');
+                const index = membersCache.findIndex(m => m.id === memberId);
+                if (index >= 0) {
+                    membersCache[index] = dataToSave;
+                } else {
+                    membersCache.push(dataToSave);
+                }
+                localStorage.setItem(`members_${unidadeId}`, JSON.stringify(membersCache));
+            } catch (e) {
+                console.error('❌ Erro ao salvar membro no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Salvar assignment no Firestore
+        const salvarAssignmentFirestore = async (unidadeId, dateStr, assignmentData) => {
+            try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
+                const assignmentRef = doc(db, 'unidades', unidadeId, 'assignments', dateStr);
+                const dataToSave = {
+                    ...assignmentData,
+                    id: dateStr,
+                    date: dateStr,
+                    unidadeId: unidadeId,
+                    atualizadoEm: new Date().toISOString()
+                };
+                
+                await setDoc(assignmentRef, dataToSave, { merge: true });
+                console.log('✅ Assignment salvo no Firestore:', dateStr);
+            } catch (e) {
+                console.error('❌ Erro ao salvar assignment no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Salvar attendance no Firestore
+        const salvarAttendanceFirestore = async (unidadeId, dateStr, attendanceData) => {
+            try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
+                const attendanceRef = doc(db, 'unidades', unidadeId, 'attendance', dateStr);
+                const dataToSave = {
+                    ...attendanceData,
+                    id: dateStr,
+                    date: dateStr,
+                    unidadeId: unidadeId,
+                    atualizadoEm: new Date().toISOString()
+                };
+                
+                await setDoc(attendanceRef, dataToSave, { merge: true });
+                console.log('✅ Attendance salvo no Firestore:', dateStr);
+            } catch (e) {
+                console.error('❌ Erro ao salvar attendance no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Deletar membro do Firestore
+        const deletarMembroFirestore = async (unidadeId, memberId) => {
+            try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
+                const memberRef = doc(db, 'unidades', unidadeId, 'membros', memberId);
+                await deleteDoc(memberRef);
+                console.log('✅ Membro deletado do Firestore:', memberId);
+                
+                // Atualizar cache do localStorage
+                const membersCache = JSON.parse(localStorage.getItem(`members_${unidadeId}`) || '[]');
+                const filtered = membersCache.filter(m => m.id !== memberId);
+                localStorage.setItem(`members_${unidadeId}`, JSON.stringify(filtered));
+            } catch (e) {
+                console.error('❌ Erro ao deletar membro do Firestore:', e);
+                throw e;
+            }
         };
         
         // Atualizar status de solicitação no Firestore
@@ -2327,68 +2435,93 @@
                 loadUsers();
             }, [authData?.unidadeId, authData?.driveFolderId]);
 
-            // Carregar dados do Drive (polling ao invés de listeners)
+            // Sincronização em tempo real com Firestore
             useEffect(() => {
-                if (!authData?.driveFolderId) return;
+                if (!authData?.unidadeId || !db) return;
                 
-                let intervalId;
-                let mounted = true;
+                const unidadeId = authData.unidadeId;
+                let unsubscribeMembers = null;
+                let unsubscribeAssignments = null;
+                let unsubscribeAttendance = null;
                 
-                const carregarDados = async () => {
-                    try {
-                        const folderId = authData.driveFolderId;
+                try {
+                    // Listener para membros (sincronização em tempo real)
+                    const membersRef = collection(db, 'unidades', unidadeId, 'membros');
+                    unsubscribeMembers = onSnapshot(membersRef, (snapshot) => {
+                        const membersData = [];
+                        snapshot.forEach((doc) => {
+                            membersData.push({ id: doc.id, ...doc.data() });
+                        });
+                        const sorted = membersData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+                        setMembers(sorted);
+                        console.log(`✅ ${sorted.length} membros sincronizados em tempo real`);
                         
-                        // Carregar membros
-                        const membersData = await listarArquivosDrive(folderId, 'member_');
-                        if (mounted) {
-                            const sorted = membersData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
-                            setMembers(sorted);
+                        // Backup no localStorage
+                        localStorage.setItem(`members_${unidadeId}`, JSON.stringify(sorted));
+                    }, (error) => {
+                        console.error('Erro no listener de membros:', error);
+                        // Fallback: carregar do localStorage
+                        const cached = JSON.parse(localStorage.getItem(`members_${unidadeId}`) || '[]');
+                        if (cached.length > 0) {
+                            setMembers(cached);
                         }
-                        
-                        // Carregar assignments
-                        const assignmentsData = await listarArquivosDrive(folderId, 'assignment_');
-                        if (mounted) {
-                            // Mapear para usar dateStr como id
-                            const mapped = assignmentsData.map(a => ({
-                                ...a,
-                                id: a.date || a.id.replace('assignment_', '')
-                            }));
-                            setAssignments(mapped);
-                        }
-                        
-                        // Carregar attendance
-                        const attendanceData = await listarArquivosDrive(folderId, 'attendance_');
-                        if (mounted) {
-                            // Mapear para usar dateStr como id
-                            const mapped = attendanceData.map(a => ({
-                                ...a,
-                                id: a.date || a.id.replace('attendance_', '')
-                            }));
-                            setAttendance(mapped);
-                        }
-                        
-                        // Carregar callings
-                        const callingsData = await listarArquivosDrive(folderId, 'calling_');
-                        if (mounted) {
+                    });
+                    
+                    // Listener para assignments (sincronização em tempo real)
+                    const assignmentsRef = collection(db, 'unidades', unidadeId, 'assignments');
+                    unsubscribeAssignments = onSnapshot(assignmentsRef, (snapshot) => {
+                        const assignmentsData = [];
+                        snapshot.forEach((doc) => {
+                            const data = { id: doc.id, ...doc.data() };
+                            assignmentsData.push(data);
+                        });
+                        setAssignments(assignmentsData);
+                        console.log(`✅ ${assignmentsData.length} assignments sincronizados em tempo real`);
+                    }, (error) => {
+                        console.error('Erro no listener de assignments:', error);
+                    });
+                    
+                    // Listener para attendance (sincronização em tempo real)
+                    const attendanceRef = collection(db, 'unidades', unidadeId, 'attendance');
+                    unsubscribeAttendance = onSnapshot(attendanceRef, (snapshot) => {
+                        const attendanceData = [];
+                        snapshot.forEach((doc) => {
+                            const data = { id: doc.id, ...doc.data() };
+                            attendanceData.push(data);
+                        });
+                        setAttendance(attendanceData);
+                        console.log(`✅ ${attendanceData.length} attendance sincronizados em tempo real`);
+                    }, (error) => {
+                        console.error('Erro no listener de attendance:', error);
+                    });
+                    
+                    // Carregar callings do Drive (ainda não migrado para Firestore)
+                    if (authData.driveFolderId) {
+                        listarArquivosDrive(authData.driveFolderId, 'calling_').then(callingsData => {
                             const sorted = callingsData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
                             setAvailableCallings(sorted);
-                        }
-                    } catch (e) {
-                        console.error("Erro ao carregar dados do Drive:", e);
+                        }).catch(e => {
+                            console.warn("Erro ao carregar callings do Drive:", e);
+                        });
                     }
-                };
-                
-                // Carregar imediatamente
-                carregarDados();
-                
-                // Atualizar a cada 5 segundos
-                intervalId = setInterval(carregarDados, 5000);
+                } catch (e) {
+                    console.error("Erro ao configurar listeners do Firestore:", e);
+                    // Fallback: tentar carregar do Drive
+                    if (authData.driveFolderId) {
+                        const folderId = authData.driveFolderId;
+                        listarArquivosDrive(folderId, 'member_').then(membersData => {
+                            const sorted = membersData.sort((a,b) => (a.name || '').localeCompare(b.name || ''));
+                            setMembers(sorted);
+                        }).catch(e => console.error("Erro ao carregar membros do Drive:", e));
+                    }
+                }
                 
                 return () => {
-                    mounted = false;
-                    if (intervalId) clearInterval(intervalId);
+                    if (unsubscribeMembers) unsubscribeMembers();
+                    if (unsubscribeAssignments) unsubscribeAssignments();
+                    if (unsubscribeAttendance) unsubscribeAttendance();
                 };
-            }, [authData?.driveFolderId]);
+            }, [authData?.unidadeId, authData?.driveFolderId]);
 
             // Funções de Data
             const getSundaysInMonth = (date) => {
@@ -2593,7 +2726,7 @@
                         <main className="flex-1 overflow-y-auto p-4 pb-24 scroll-smooth bg-gradient-to-b from-gray-50 to-white">
                             {view === 'agenda' && <AgendaView currentDate={currentDate} changeMonth={changeMonth} sundays={currentSundays} assignments={assignments} attendance={attendance} members={members} onSelectDate={(id) => { setSelectedAssignmentId(id); setView('editor'); }} />}
                             {view === 'membros' && <MembersView members={members} user={authData.user} availableCallings={availableCallings} onManageCallings={() => setShowCallingManager(true)} driveFolderId={authData.driveFolderId} />}
-                            {view === 'editor' && <EditorView dateStr={selectedAssignmentId} assignments={assignments} attendance={attendance} members={members} user={authData.user} onBack={() => setView('agenda')} driveFolderId={authData.driveFolderId} />}
+                            {view === 'editor' && <EditorView dateStr={selectedAssignmentId} assignments={assignments} attendance={attendance} members={members} user={authData.user} onBack={() => setView('agenda')} driveFolderId={authData.driveFolderId} unidadeId={authData.unidadeId} />}
                             {view === 'reports' && <ReportsView attendance={attendance} members={members} />}
                         </main>
 
@@ -2748,7 +2881,7 @@
             );
         }
 
-        function PlanningPanel({ dateStr, initialData, members, user, driveFolderId }) {
+        function PlanningPanel({ dateStr, initialData, members, user, driveFolderId, unidadeId }) {
             const [formData, setFormData] = useState({...initialData});
             const [saving, setSaving] = useState(false);
             const [picker, setPicker] = useState(null);
@@ -3095,7 +3228,7 @@
             );
         }
 
-        function AttendancePanel({ dateStr, initialData, members, user, driveFolderId }) {
+        function AttendancePanel({ dateStr, initialData, members, user, driveFolderId, unidadeId }) {
             const [ids, setIds] = useState(initialData.attendees || []);
             const [search, setSearch] = useState('');
             
@@ -3175,7 +3308,7 @@
         }
 
         // --- Componentes Auxiliares Modernizados ---
-        function MembersView({ members, user, availableCallings, onManageCallings, driveFolderId }) {
+        function MembersView({ members, user, availableCallings, onManageCallings, driveFolderId, unidadeId }) {
             const [form, setForm] = useState({ name: '', calling: '', type: 'member', gender: '', birthDate: '' });
             const [selectedMember, setSelectedMember] = useState(null);
             const [duplicateWarning, setDuplicateWarning] = useState(null); // { member, newData }
@@ -3265,7 +3398,14 @@
                     const memberId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
                     const fileName = `member_${memberId}`;
                     const dataToSave = forcar ? duplicateWarning.newData : form;
-                    await salvarNoDrive(driveFolderId, fileName, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
+                    // Salvar no Firestore primeiro (sincronização em tempo real)
+                    try {
+                        await salvarMembroFirestore(authData.unidadeId, memberId, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
+                    } catch (e) {
+                        console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                        // Fallback para Drive
+                        await salvarNoDrive(driveFolderId, fileName, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
+                    }
                     setForm({ name: '', calling: '', type: 'member', gender: '', birthDate: '' });
                     setDuplicateWarning(null);
                 } catch (e) {
