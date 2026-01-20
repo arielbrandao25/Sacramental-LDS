@@ -3305,12 +3305,23 @@
                 try {
                     const dataToSave = { date: dateStr, attendees: ids, count: ids.length };
                     // Salvar no Firestore primeiro (sincronização em tempo real)
-                    try {
-                        await salvarAttendanceFirestore(unidadeId, dateStr, dataToSave);
-                    } catch (e) {
-                        console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
-                        // Fallback para Drive
+                    if (unidadeId && db) {
+                        try {
+                            await salvarAttendanceFirestore(unidadeId, dateStr, dataToSave);
+                        } catch (e) {
+                            console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                            // Fallback para Drive
+                            if (driveFolderId) {
+                                await salvarNoDrive(driveFolderId, `attendance_${dateStr}`, dataToSave);
+                            } else {
+                                throw new Error('Nem Firestore nem Drive disponíveis');
+                            }
+                        }
+                    } else if (driveFolderId) {
+                        // Se não tem unidadeId, usar apenas Drive
                         await salvarNoDrive(driveFolderId, `attendance_${dateStr}`, dataToSave);
+                    } else {
+                        throw new Error('Nem Firestore nem Drive disponíveis');
                     }
                     alert("Frequência salva com sucesso!");
                 } catch (e) {
