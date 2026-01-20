@@ -2967,7 +2967,7 @@
             );
         }
 
-        function EditorView({ dateStr, assignments, attendance, members, user, onBack, driveFolderId }) {
+        function EditorView({ dateStr, assignments, attendance, members, user, onBack, driveFolderId, unidadeId }) {
             const [tab, setTab] = useState('planning');
             const assign = assignments.find(a => a.id === dateStr || a.date === dateStr) || {};
             const att = attendance.find(a => a.id === dateStr || a.date === dateStr) || { attendees: [], count: 0 };
