@@ -3400,7 +3400,7 @@
                     const dataToSave = forcar ? duplicateWarning.newData : form;
                     // Salvar no Firestore primeiro (sincronização em tempo real)
                     try {
-                        await salvarMembroFirestore(authData.unidadeId, memberId, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
+                        await salvarMembroFirestore(unidadeId, memberId, { ...dataToSave, id: memberId, createdAt: new Date().toISOString() });
                     } catch (e) {
                         console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
                         // Fallback para Drive
