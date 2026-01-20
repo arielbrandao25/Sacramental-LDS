@@ -381,6 +381,10 @@
         // Salvar usuário no Firestore
         const salvarUsuarioFirestore = async (userId, userData) => {
             try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
                 const userRef = doc(db, 'usuarios', userId);
                 const dataToSave = {
                     ...userData,
@@ -392,14 +396,37 @@
                     dataToSave.criadoEm = new Date().toISOString();
                 }
                 
+                // Verificar se é erro de permissão
                 await setDoc(userRef, dataToSave, { merge: true });
-                console.log('✅ Usuário salvo no Firestore:', userId);
+                console.log('✅ Usuário salvo no Firestore:', userId, 'Status:', dataToSave.status);
+                
                 // Salvar no localStorage como backup
                 localStorage.setItem(`user_${userId}`, JSON.stringify(dataToSave));
             } catch (e) {
                 console.error('❌ Erro ao salvar usuário no Firestore:', e);
-                // Fallback para localStorage
-                localStorage.setItem(`user_${userId}`, JSON.stringify({ ...userData, id: userId }));
+                
+                // Verificar se é erro de permissão
+                const isPermissionError = e?.code === 'permission-denied' || 
+                                         e?.message?.includes('permission') ||
+                                         e?.message?.includes('Missing or insufficient permissions');
+                
+                if (isPermissionError) {
+                    console.error('❌ Erro de permissão do Firestore! Verifique as regras de segurança.');
+                    console.error('💡 Dica: As regras devem permitir que usuários autenticados escrevam seus próprios dados.');
+                    // Re-lançar o erro para que seja tratado no handleApprove
+                    throw new Error('Permissão negada no Firestore. Verifique as regras de segurança ou entre em contato com o administrador.');
+                }
+                
+                // Fallback para localStorage apenas se não for erro de permissão
+                try {
+                    localStorage.setItem(`user_${userId}`, JSON.stringify({ ...userData, id: userId }));
+                    console.warn('⚠️ Dados salvos no localStorage como fallback');
+                } catch (storageError) {
+                    console.error('❌ Erro ao salvar no localStorage também:', storageError);
+                }
+                
+                // Re-lançar o erro para que seja tratado
+                throw e;
             }
         };
         
@@ -4876,11 +4903,26 @@ Equipe Sacramental LDS`);
                     userData.atualizadoEm = new Date().toISOString();
                     
                     // Salvar no Firestore (isso sobrescreve qualquer status anterior)
-                    await salvarUsuarioFirestore(userId, userData);
-                    console.log('✅ Usuário aprovado no Firestore:', userId, 'Status:', userData.status);
+                    try {
+                        await salvarUsuarioFirestore(userId, userData);
+                        console.log('✅ Usuário aprovado no Firestore:', userId, 'Status:', userData.status);
+                    } catch (e) {
+                        // Se der erro de permissão, mostrar mensagem mais clara
+                        if (e.message && e.message.includes('permissão')) {
+                            setError('Erro ao aprovar usuário: ' + e.message + ' Verifique as regras de segurança do Firestore.');
+                            setLoading(false);
+                            return;
+                        }
+                        // Re-lançar outros erros
+                        throw e;
+                    }
                     
-                    // Atualizar localStorage também
-                    localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
+                    // Atualizar localStorage também (já foi feito no salvarUsuarioFirestore, mas garantimos aqui)
+                    try {
+                        localStorage.setItem(`user_${userId}`, JSON.stringify(userData));
+                    } catch (e) {
+                        console.warn('⚠️ Erro ao atualizar localStorage:', e);
+                    }
                     
                     // Se foi uma solicitação pendente, atualizar no Firestore
                     if (requestId) {
