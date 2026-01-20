@@ -4436,6 +4436,13 @@
                     });
                 });
                 
+                // Debug: mostrar todos os IDs dos membros
+                console.log('👥 IDs dos membros:', members.filter(m => m.type !== 'visitor').map(m => ({
+                    name: m.name,
+                    id: m.id,
+                    idAsString: String(m.id)
+                })));
+                
                 // Para cada membro, calcular presenças e faltas
                 const resultado = members
                     .filter(m => m.type !== 'visitor')
@@ -4477,25 +4484,19 @@
                             // Verificar se o membro está presente (comparar como strings)
                             const estevePresente = attendeesArray.some(id => String(id) === memberIdStr);
                             
-                            // Debug detalhado para todos os membros e todas as datas (apenas se houver dados)
-                            if (attendanceArray.length > 0 && todasDatas.length > 0) {
-                                console.log(`🔍 Debug para ${member.name} (ID: ${memberIdStr}) na data ${dateStr}:`);
-                                console.log('  - attRecord:', attRecord);
-                                console.log('  - attendees (original):', attendeesArray);
-                                console.log('  - attendees (como strings):', attendeesArray.map(id => String(id)));
-                                console.log('  - estevePresente:', estevePresente);
-                                console.log('  - member.id (original):', member.id);
-                                console.log('  - member.id (como string):', memberIdStr);
-                            }
+                            // Debug detalhado para todos os membros e todas as datas
+                            console.log(`🔍 ${member.name} (ID: ${memberIdStr}) na data ${dateStr}:`);
+                            console.log('  - attendees array:', attendeesArray);
+                            console.log('  - attendees como strings:', attendeesArray.map(id => String(id)));
+                            console.log('  - member.id como string:', memberIdStr);
+                            console.log('  - estevePresente:', estevePresente);
                             
-                            // Debug detalhado apenas para o primeiro membro e primeira data
-                            if (member.id === members.filter(m => m.type !== 'visitor')[0]?.id && dateStr === todasDatas[0]) {
-                                console.log(`🔍 Debug para ${member.name} (ID: ${memberIdStr}) na data ${dateStr}:`);
-                                console.log('  - attRecord:', attRecord);
-                                console.log('  - attendees (original):', attendeesArray);
-                                console.log('  - attendees (como strings):', attendeesArray.map(id => String(id)));
-                                console.log('  - estevePresente:', estevePresente);
-                            }
+                            // Tentar diferentes formas de comparação para debug
+                            const comparacao1 = attendeesArray.includes(member.id);
+                            const comparacao2 = attendeesArray.includes(memberIdStr);
+                            const comparacao3 = attendeesArray.some(id => id == member.id); // == em vez de ===
+                            const comparacao4 = attendeesArray.some(id => String(id) === memberIdStr);
+                            console.log('  - Comparações:', { comparacao1, comparacao2, comparacao3, comparacao4 });
                             
                             const dataFormatada = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', {
                                 day: '2-digit',
