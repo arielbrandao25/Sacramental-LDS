@@ -39,13 +39,27 @@ service cloud.firestore {
     
     // Regra para coleção de usuários
     match /usuarios/{userId} {
-      // Usuários podem ler seus próprios dados
+      // Usuários podem ler seus próprios dados e dados de usuários da mesma unidade
       allow read: if request.auth != null && 
                      (request.auth.uid == userId || 
                       resource.data.unidadeId != null);
-      // Usuários podem escrever seus próprios dados
-      allow write: if request.auth != null && 
-                     (request.auth.uid == userId);
+      
+      // Criação: usuários podem criar seus próprios dados
+      allow create: if request.auth != null && 
+                      request.auth.uid == userId;
+      
+      // Atualização: usuários podem atualizar seus próprios dados
+      // OU admins podem atualizar dados de usuários da mesma unidade
+      allow update: if request.auth != null && 
+                      (request.auth.uid == userId ||
+                       // Admin pode atualizar se o usuário pertence à mesma unidade do admin
+                       (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin' &&
+                        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == resource.data.unidadeId));
+      
+      // Deleção: apenas usuários podem deletar seus próprios dados
+      allow delete: if request.auth != null && 
+                      request.auth.uid == userId;
     }
     
     // Regra para coleção de solicitações
