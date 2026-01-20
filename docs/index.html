@@ -2541,10 +2541,18 @@
                             const data = { id: doc.id, ...doc.data() };
                             attendanceData.push(data);
                         });
+                        console.log(`🔄 Listener de attendance acionado: ${attendanceData.length} registros`);
+                        console.log('📊 Dados de attendance:', attendanceData);
                         setAttendance(attendanceData);
                         console.log(`✅ ${attendanceData.length} attendance sincronizados em tempo real`);
                     }, (error) => {
-                        console.error('Erro no listener de attendance:', error);
+                        console.error('❌ Erro no listener de attendance:', error);
+                        // Fallback: tentar carregar do localStorage
+                        const cached = JSON.parse(localStorage.getItem(`attendance_${unidadeId}`) || '[]');
+                        if (cached.length > 0) {
+                            console.warn('⚠️ Usando cache do localStorage para attendance');
+                            setAttendance(cached);
+                        }
                     });
                     
                     // Listener para chamados (sincronização em tempo real)
