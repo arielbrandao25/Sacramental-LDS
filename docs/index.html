@@ -5639,7 +5639,14 @@ Equipe Sacramental LDS`);
                 if (!val.trim()) return;
                 try {
                     const callingId = `calling_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-                    await salvarNoDrive(driveFolderId, callingId, { name: val, id: callingId });
+                    // Salvar no Firestore primeiro (sincronização em tempo real)
+                    try {
+                        await salvarChamadoFirestore(unidadeId, callingId, { name: val, id: callingId });
+                    } catch (e) {
+                        console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                        // Fallback para Drive
+                        await salvarNoDrive(driveFolderId, callingId, { name: val, id: callingId });
+                    }
                     setVal('');
                 } catch (e) {
                     console.error(e);
