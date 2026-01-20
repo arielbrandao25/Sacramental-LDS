@@ -3343,30 +3343,53 @@
             };
             const save = async () => {
                 try {
-                    const dataToSave = { date: dateStr, attendees: ids, count: ids.length };
+                    if (!dateStr) {
+                        alert("Erro: Data não informada");
+                        return;
+                    }
+                    
+                    if (!unidadeId) {
+                        alert("Erro: Unidade não identificada. Recarregue a página.");
+                        return;
+                    }
+                    
+                    const dataToSave = { 
+                        date: dateStr, 
+                        attendees: ids, 
+                        count: ids.length,
+                        criadoEm: new Date().toISOString()
+                    };
+                    
+                    console.log('💾 Salvando frequência:', { dateStr, unidadeId, dataToSave });
+                    
                     // Salvar no Firestore primeiro (sincronização em tempo real)
                     if (unidadeId && db) {
                         try {
                             await salvarAttendanceFirestore(unidadeId, dateStr, dataToSave);
+                            console.log('✅ Frequência salva no Firestore com sucesso!');
                         } catch (e) {
-                            console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                            console.error('❌ Erro ao salvar no Firestore:', e);
+                            console.warn('⚠️ Tentando salvar no Drive como fallback...');
                             // Fallback para Drive
                             if (driveFolderId) {
                                 await salvarNoDrive(driveFolderId, `attendance_${dateStr}`, dataToSave);
+                                console.log('✅ Frequência salva no Drive como fallback');
                             } else {
                                 throw new Error('Nem Firestore nem Drive disponíveis');
                             }
                         }
                     } else if (driveFolderId) {
                         // Se não tem unidadeId, usar apenas Drive
+                        console.warn('⚠️ UnidadeId não disponível, salvando apenas no Drive');
                         await salvarNoDrive(driveFolderId, `attendance_${dateStr}`, dataToSave);
                     } else {
                         throw new Error('Nem Firestore nem Drive disponíveis');
                     }
-                    alert("Frequência salva com sucesso!");
+                    
+                    alert("✅ Frequência salva com sucesso!");
                 } catch (e) {
-                    console.error(e);
-                    alert("Erro ao salvar frequência: " + e.message);
+                    console.error('❌ Erro ao salvar frequência:', e);
+                    alert("❌ Erro ao salvar frequência: " + e.message);
                 }
             };
             
