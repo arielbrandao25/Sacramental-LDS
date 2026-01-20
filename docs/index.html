@@ -3374,6 +3374,14 @@
             const [ids, setIds] = useState(initialData.attendees || []);
             const [search, setSearch] = useState('');
             
+            // Atualizar ids quando initialData mudar (dados em tempo real)
+            useEffect(() => {
+                if (initialData && initialData.attendees) {
+                    console.log('🔄 AttendancePanel: atualizando ids com initialData:', initialData.attendees);
+                    setIds(initialData.attendees || []);
+                }
+            }, [initialData]);
+            
             const toggle = (id) => {
                 const newIds = ids.includes(id) ? ids.filter(x=>x!==id) : [...ids, id];
                 setIds(newIds);
