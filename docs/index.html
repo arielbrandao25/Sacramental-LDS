@@ -4412,6 +4412,7 @@
                 console.log('📊 Gerando relatório de membros...');
                 console.log('📋 Total de registros de attendance:', attendance?.length || 0);
                 console.log('👥 Total de membros:', members?.length || 0);
+                console.log('📋 Attendance (raw):', attendance);
                 
                 // Garantir que attendance é um array
                 const attendanceArray = Array.isArray(attendance) ? attendance : [];
@@ -4424,6 +4425,16 @@
                 
                 console.log('📅 Datas de frequência encontradas:', todasDatas);
                 console.log('📋 Dados completos de attendance:', attendanceArray);
+                
+                // Debug: mostrar todos os attendees de todos os registros
+                attendanceArray.forEach(att => {
+                    console.log(`📝 Attendance ${att.date || att.id}:`, {
+                        date: att.date || att.id,
+                        attendees: att.attendees,
+                        count: att.count,
+                        attendeesAsStrings: att.attendees?.map(id => String(id))
+                    });
+                });
                 
                 // Para cada membro, calcular presenças e faltas
                 const resultado = members
@@ -4465,6 +4476,17 @@
                             
                             // Verificar se o membro está presente (comparar como strings)
                             const estevePresente = attendeesArray.some(id => String(id) === memberIdStr);
+                            
+                            // Debug detalhado para todos os membros e todas as datas (apenas se houver dados)
+                            if (attendanceArray.length > 0 && todasDatas.length > 0) {
+                                console.log(`🔍 Debug para ${member.name} (ID: ${memberIdStr}) na data ${dateStr}:`);
+                                console.log('  - attRecord:', attRecord);
+                                console.log('  - attendees (original):', attendeesArray);
+                                console.log('  - attendees (como strings):', attendeesArray.map(id => String(id)));
+                                console.log('  - estevePresente:', estevePresente);
+                                console.log('  - member.id (original):', member.id);
+                                console.log('  - member.id (como string):', memberIdStr);
+                            }
                             
                             // Debug detalhado apenas para o primeiro membro e primeira data
                             if (member.id === members.filter(m => m.type !== 'visitor')[0]?.id && dateStr === todasDatas[0]) {
