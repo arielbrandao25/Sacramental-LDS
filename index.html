@@ -707,6 +707,49 @@
             }
         };
         
+        // Salvar chamado no Firestore
+        const salvarChamadoFirestore = async (unidadeId, callingId, callingData) => {
+            try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
+                const callingRef = doc(db, 'unidades', unidadeId, 'chamados', callingId);
+                const dataToSave = {
+                    ...callingData,
+                    id: callingId,
+                    unidadeId: unidadeId,
+                    atualizadoEm: new Date().toISOString()
+                };
+                
+                if (!callingData.criadoEm) {
+                    dataToSave.criadoEm = new Date().toISOString();
+                }
+                
+                await setDoc(callingRef, dataToSave, { merge: true });
+                console.log('✅ Chamado salvo no Firestore:', callingId);
+            } catch (e) {
+                console.error('❌ Erro ao salvar chamado no Firestore:', e);
+                throw e;
+            }
+        };
+        
+        // Deletar chamado do Firestore
+        const deletarChamadoFirestore = async (unidadeId, callingId) => {
+            try {
+                if (!db) {
+                    throw new Error('Firestore não está inicializado');
+                }
+                
+                const callingRef = doc(db, 'unidades', unidadeId, 'chamados', callingId);
+                await deleteDoc(callingRef);
+                console.log('✅ Chamado deletado do Firestore:', callingId);
+            } catch (e) {
+                console.error('❌ Erro ao deletar chamado do Firestore:', e);
+                throw e;
+            }
+        };
+        
         // Atualizar status de solicitação no Firestore
         const atualizarSolicitacaoFirestore = async (solicitacaoId, status) => {
             try {
@@ -2739,7 +2782,7 @@
                             </div>
                         )}
 
-                        {showCallingManager && <CallingsManager availableCallings={availableCallings} onClose={() => setShowCallingManager(false)} user={authData.user} driveFolderId={authData.driveFolderId} />}
+                        {showCallingManager && <CallingsManager availableCallings={availableCallings} onClose={() => setShowCallingManager(false)} user={authData.user} driveFolderId={authData.driveFolderId} unidadeId={authData.unidadeId} />}
                         {showUserManager && authData.role === 'admin' && <UserManager 
                             unidadeId={authData.unidadeId} 
                             unidadeUsers={unidadeUsers} 

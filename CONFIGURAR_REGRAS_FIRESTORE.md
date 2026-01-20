@@ -59,6 +59,14 @@ service cloud.firestore {
                              (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
                               get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
       }
+      
+      // Subcoleção de chamados - usuários da mesma unidade podem ler/escrever
+      match /chamados/{chamadoId} {
+        allow read, write: if request.auth != null && 
+                             // Verificar se o usuário pertence à mesma unidade
+                             (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                              get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
+      }
     }
     
     // Regra para coleção de usuários
@@ -154,6 +162,7 @@ service cloud.firestore {
 - **Membros** (`membros`): Usuários da mesma unidade podem ler/escrever
 - **Assignments** (`assignments`): Usuários da mesma unidade podem ler/escrever (planejamentos)
 - **Attendance** (`attendance`): Usuários da mesma unidade podem ler/escrever (frequência)
+- **Chamados** (`chamados`): Usuários da mesma unidade podem ler/escrever
 
 ## 🚨 Problemas Comuns
 
