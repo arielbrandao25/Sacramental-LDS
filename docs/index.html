@@ -4422,8 +4422,12 @@
                             // Se o membro tem data de criação, só considerar datas a partir dessa data
                             if (dataCriacao) {
                                 const dataAtual = new Date(dateStr + 'T12:00:00');
+                                // Normalizar as datas para comparação (apenas data, sem hora)
+                                const dataCriacaoNormalizada = new Date(dataCriacao.getFullYear(), dataCriacao.getMonth(), dataCriacao.getDate());
+                                const dataAtualNormalizada = new Date(dataAtual.getFullYear(), dataAtual.getMonth(), dataAtual.getDate());
+                                
                                 // Se a data da frequência é anterior à data de criação do membro, ignorar
-                                if (dataAtual < dataCriacao) {
+                                if (dataAtualNormalizada < dataCriacaoNormalizada) {
                                     return; // Pula esta data, não conta como presença nem falta
                                 }
                             }
