@@ -669,6 +669,14 @@
                     throw new Error('Firestore não está inicializado');
                 }
                 
+                if (!unidadeId) {
+                    throw new Error('unidadeId não fornecido');
+                }
+                
+                if (!dateStr) {
+                    throw new Error('dateStr não fornecido');
+                }
+                
                 const attendanceRef = doc(db, 'unidades', unidadeId, 'attendance', dateStr);
                 const dataToSave = {
                     ...attendanceData,
