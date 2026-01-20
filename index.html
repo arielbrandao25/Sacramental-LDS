@@ -4277,9 +4277,9 @@
             
             // Relatório detalhado por membro (deve vir antes de analiseIA)
             const membersReport = useMemo(() => {
-                // Obter todas as datas de frequência registradas
+                // Obter todas as datas de frequência registradas (compatibilidade com Firestore e Drive)
                 const todasDatas = attendance
-                    .map(a => a.date)
+                    .map(a => a.date || a.id)
                     .filter(Boolean)
                     .sort();
                 
