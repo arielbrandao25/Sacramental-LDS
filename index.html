@@ -2725,7 +2725,7 @@
                         {/* Conteúdo */}
                         <main className="flex-1 overflow-y-auto p-4 pb-24 scroll-smooth bg-gradient-to-b from-gray-50 to-white">
                             {view === 'agenda' && <AgendaView currentDate={currentDate} changeMonth={changeMonth} sundays={currentSundays} assignments={assignments} attendance={attendance} members={members} onSelectDate={(id) => { setSelectedAssignmentId(id); setView('editor'); }} />}
-                            {view === 'membros' && <MembersView members={members} user={authData.user} availableCallings={availableCallings} onManageCallings={() => setShowCallingManager(true)} driveFolderId={authData.driveFolderId} />}
+                            {view === 'membros' && <MembersView members={members} user={authData.user} availableCallings={availableCallings} onManageCallings={() => setShowCallingManager(true)} driveFolderId={authData.driveFolderId} unidadeId={authData.unidadeId} />}
                             {view === 'editor' && <EditorView dateStr={selectedAssignmentId} assignments={assignments} attendance={attendance} members={members} user={authData.user} onBack={() => setView('agenda')} driveFolderId={authData.driveFolderId} unidadeId={authData.unidadeId} />}
                             {view === 'reports' && <ReportsView attendance={attendance} members={members} />}
                         </main>
@@ -2892,7 +2892,14 @@
                 setSaving(true);
                 try {
                     const dataToSave = { ...formData, date: dateStr, updatedBy: user.uid };
-                    await salvarNoDrive(driveFolderId, `assignment_${dateStr}`, dataToSave);
+                    // Salvar no Firestore primeiro (sincronização em tempo real)
+                    try {
+                        await salvarAssignmentFirestore(unidadeId, dateStr, dataToSave);
+                    } catch (e) {
+                        console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                        // Fallback para Drive
+                        await salvarNoDrive(driveFolderId, `assignment_${dateStr}`, dataToSave);
+                    }
                     
                     if(formData.youth) await updateMemberLastSpoken(formData.youth, dateStr, driveFolderId);
                     if(formData.speaker1) await updateMemberLastSpoken(formData.speaker1, dateStr, driveFolderId);
