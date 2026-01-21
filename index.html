@@ -214,6 +214,8 @@
         const db = getFirestore(app);
         
         console.log('✅ Firebase inicializado');
+        console.log('📊 Projeto:', firebaseConfig.projectId);
+        console.log('💡 Se o banco foi criado recentemente, pode levar alguns minutos para estar totalmente disponível na API.');
 
         // --- FUNÇÕES FIRESTORE (Para Unidades e Usuários) ---
         
@@ -284,8 +286,9 @@
                     if (unidadeDataStr) {
                         const isDatabaseNotExists = e?.code === 'not-found' && e?.message?.includes('database');
                         if (isDatabaseNotExists) {
-                            console.warn('⚠️ Firestore não configurado - usando cache do localStorage para unidade:', unidadeId);
-                            console.info('💡 Para configurar o Firestore, acesse: https://console.cloud.google.com/datastore/setup?project=sacramental-novo');
+                            console.warn('⚠️ Firestore ainda não disponível na API - usando cache do localStorage para unidade:', unidadeId);
+                            console.info('💡 Se você acabou de criar o banco, aguarde alguns minutos para ele estar totalmente disponível.');
+                            console.info('   O app continuará funcionando normalmente usando o cache local.');
                         } else {
                             console.warn('⚠️ Firestore indisponível - usando cache do localStorage para unidade:', unidadeId);
                         }
