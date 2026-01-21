@@ -276,12 +276,19 @@
                                       e?.message?.includes('offline') ||
                                       e?.message?.includes('client is offline') ||
                                       e?.message?.includes('database') && e?.message?.includes('does not exist') ||
+                                      e?.message?.includes('Could not reach Cloud Firestore backend') ||
                                       !navigator.onLine;
                 
                 if (isOfflineError) {
                     // Erro de offline ou banco não configurado - usar localStorage silenciosamente
                     if (unidadeDataStr) {
-                        console.warn('⚠️ Firestore indisponível - usando cache do localStorage para unidade:', unidadeId);
+                        const isDatabaseNotExists = e?.code === 'not-found' && e?.message?.includes('database');
+                        if (isDatabaseNotExists) {
+                            console.warn('⚠️ Firestore não configurado - usando cache do localStorage para unidade:', unidadeId);
+                            console.info('💡 Para configurar o Firestore, acesse: https://console.cloud.google.com/datastore/setup?project=sacramental-novo');
+                        } else {
+                            console.warn('⚠️ Firestore indisponível - usando cache do localStorage para unidade:', unidadeId);
+                        }
                         return JSON.parse(unidadeDataStr);
                     }
                 } else {
