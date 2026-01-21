@@ -532,22 +532,56 @@
         // Salvar solicitação pendente no Firestore
         const salvarSolicitacaoFirestore = async (solicitacao) => {
             try {
-                const solicitacaoRef = doc(collection(db, 'solicitacoes'));
+                // Garantir que todos os campos necessários estão presentes
                 const dataToSave = {
-                    ...solicitacao,
-                    id: solicitacaoRef.id,
+                    userId: solicitacao.userId,
+                    email: solicitacao.email,
+                    nome: solicitacao.nome || solicitacao.email?.split('@')[0],
+                    unidadeId: solicitacao.unidadeId,
+                    unidadeNome: solicitacao.unidadeNome || '',
                     status: 'pending',
                     criadoEm: new Date().toISOString()
                 };
                 
-                await setDoc(solicitacaoRef, dataToSave);
-                console.log('✅ Solicitação salva no Firestore:', solicitacaoRef.id);
+                console.log('💾 Salvando solicitação no Firestore:', dataToSave);
+                
+                const solicitacaoRef = doc(collection(db, 'solicitacoes'));
+                await setDoc(solicitacaoRef, { ...dataToSave, id: solicitacaoRef.id });
+                
+                console.log('✅ Solicitação salva no Firestore:', solicitacaoRef.id, 'com unidadeId:', dataToSave.unidadeId);
+                
+                // Também salvar no localStorage como backup
+                try {
+                    const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                    solicitacoes.push({ ...dataToSave, id: solicitacaoRef.id });
+                    localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
+                } catch (storageError) {
+                    console.warn('⚠️ Erro ao salvar no localStorage:', storageError);
+                }
+                
+                return solicitacaoRef.id;
             } catch (e) {
                 console.error('❌ Erro ao salvar solicitação no Firestore:', e);
+                console.error('   - Código:', e.code);
+                console.error('   - Mensagem:', e.message);
+                
                 // Fallback para localStorage
-                const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
-                solicitacoes.push({ ...solicitacao, status: 'pending', criadoEm: new Date().toISOString() });
-                localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
+                try {
+                    const solicitacoes = JSON.parse(localStorage.getItem('pending_requests') || '[]');
+                    const fallbackRequest = {
+                        ...solicitacao,
+                        id: 'local_' + Date.now(),
+                        status: 'pending',
+                        criadoEm: new Date().toISOString()
+                    };
+                    solicitacoes.push(fallbackRequest);
+                    localStorage.setItem('pending_requests', JSON.stringify(solicitacoes));
+                    console.warn('⚠️ Solicitação salva apenas no localStorage como fallback');
+                    return fallbackRequest.id;
+                } catch (storageError) {
+                    console.error('❌ Erro ao salvar no localStorage também:', storageError);
+                    throw e;
+                }
             }
         };
         
@@ -555,41 +589,86 @@
         const buscarSolicitacoesPendentesFirestore = async (unidadeId) => {
             try {
                 if (!navigator.onLine) {
+                    console.log('⚠️ Offline - usando localStorage para solicitações');
                     return buscarSolicitacoesLocalStorage(unidadeId);
                 }
+                
+                if (!unidadeId) {
+                    console.warn('⚠️ unidadeId não fornecido para buscar solicitações');
+                    return buscarSolicitacoesLocalStorage(unidadeId);
+                }
+                
+                console.log('🔍 Buscando solicitações pendentes para unidade:', unidadeId);
                 
                 const solicitacoesRef = collection(db, 'solicitacoes');
-                const q = query(solicitacoesRef, where('unidadeId', '==', unidadeId), where('status', '==', 'pending'), orderBy('criadoEm', 'desc'));
-                const querySnapshot = await getDocs(q);
                 
-                const solicitacoes = [];
-                querySnapshot.forEach((doc) => {
-                    solicitacoes.push({ id: doc.id, ...doc.data() });
-                });
-                
-                return solicitacoes;
-            } catch (e) {
-                // Verificar se é erro de índice faltante
-                const isIndexError = e?.code === 'failed-precondition' || 
-                                    e?.message?.includes('index') || 
-                                    e?.message?.includes('requires an index');
-                
-                if (isIndexError) {
-                    // Erro de índice - usar localStorage e mostrar link útil
-                    console.warn('⚠️ Índice do Firestore para solicitações não criado ainda. Usando cache do localStorage.');
-                    if (e?.message?.includes('https://console.firebase.google.com')) {
-                        // Extrair o link do erro se disponível
-                        const linkMatch = e.message.match(/https:\/\/[^\s]+/);
-                        if (linkMatch) {
-                            console.info('📊 Para criar o índice de solicitações, acesse:', linkMatch[0]);
+                // Primeiro, tentar buscar com a query completa (requer índice)
+                try {
+                    const q = query(
+                        solicitacoesRef, 
+                        where('unidadeId', '==', unidadeId), 
+                        where('status', '==', 'pending'), 
+                        orderBy('criadoEm', 'desc')
+                    );
+                    const querySnapshot = await getDocs(q);
+                    
+                    const solicitacoes = [];
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        solicitacoes.push({ id: doc.id, ...data });
+                    });
+                    
+                    console.log(`✅ ${solicitacoes.length} solicitações encontradas no Firestore para unidade ${unidadeId}`);
+                    return solicitacoes;
+                } catch (indexError) {
+                    // Se der erro de índice, tentar buscar sem orderBy
+                    const isIndexError = indexError?.code === 'failed-precondition' || 
+                                        indexError?.message?.includes('index') || 
+                                        indexError?.message?.includes('requires an index');
+                    
+                    if (isIndexError) {
+                        console.warn('⚠️ Índice não criado. Buscando sem orderBy...');
+                        if (indexError?.message?.includes('https://console.firebase.google.com')) {
+                            const linkMatch = indexError.message.match(/https:\/\/[^\s]+/);
+                            if (linkMatch) {
+                                console.info('📊 Para criar o índice, acesse:', linkMatch[0]);
+                            }
                         }
+                        
+                        // Tentar buscar sem orderBy
+                        const q2 = query(
+                            solicitacoesRef, 
+                            where('unidadeId', '==', unidadeId), 
+                            where('status', '==', 'pending')
+                        );
+                        const querySnapshot2 = await getDocs(q2);
+                        
+                        const solicitacoes = [];
+                        querySnapshot2.forEach((doc) => {
+                            const data = doc.data();
+                            solicitacoes.push({ id: doc.id, ...data });
+                        });
+                        
+                        // Ordenar manualmente
+                        solicitacoes.sort((a, b) => {
+                            const dateA = a.criadoEm ? new Date(a.criadoEm).getTime() : 0;
+                            const dateB = b.criadoEm ? new Date(b.criadoEm).getTime() : 0;
+                            return dateB - dateA;
+                        });
+                        
+                        console.log(`✅ ${solicitacoes.length} solicitações encontradas (sem índice)`);
+                        return solicitacoes;
                     }
-                    return buscarSolicitacoesLocalStorage(unidadeId);
+                    
+                    throw indexError;
                 }
+            } catch (e) {
+                console.error('❌ Erro ao buscar solicitações do Firestore:', e);
+                console.error('   - Código:', e.code);
+                console.error('   - Mensagem:', e.message);
                 
-                // Outros erros - logar como warning
-                console.warn('⚠️ Erro ao buscar solicitações:', e?.message || e);
                 // Fallback para localStorage
+                console.warn('⚠️ Usando localStorage como fallback');
                 return buscarSolicitacoesLocalStorage(unidadeId);
             }
         };
