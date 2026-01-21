@@ -39,33 +39,33 @@ service cloud.firestore {
       // Subcoleção de membros - usuários da mesma unidade podem ler/escrever
       match /membros/{memberId} {
         allow read, write: if request.auth != null && 
-                             // Verificar se o usuário pertence à mesma unidade
-                             (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
-                              get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
+                           // Verificar se o usuário pertence à mesma unidade
+                           (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                            get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
       }
       
       // Subcoleção de assignments (planejamentos) - usuários da mesma unidade podem ler/escrever
       match /assignments/{assignmentId} {
         allow read, write: if request.auth != null && 
-                             // Verificar se o usuário pertence à mesma unidade
-                             (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
-                              get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
+                           // Verificar se o usuário pertence à mesma unidade
+                           (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                            get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
       }
       
       // Subcoleção de attendance (frequência) - usuários da mesma unidade podem ler/escrever
       match /attendance/{attendanceId} {
         allow read, write: if request.auth != null && 
-                             // Verificar se o usuário pertence à mesma unidade
-                             (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
-                              get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
+                           // Verificar se o usuário pertence à mesma unidade
+                           (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                            get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
       }
       
       // Subcoleção de chamados - usuários da mesma unidade podem ler/escrever
       match /chamados/{chamadoId} {
         allow read, write: if request.auth != null && 
-                             // Verificar se o usuário pertence à mesma unidade
-                             (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
-                              get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
+                           // Verificar se o usuário pertence à mesma unidade
+                           (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                            get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == unidadeId);
       }
     }
     
@@ -155,6 +155,9 @@ service cloud.firestore {
 ### Usuários (`usuarios`)
 - **Leitura**: Usuários podem ler seus próprios dados e dados de usuários da mesma unidade
 - **Escrita**: Usuários podem modificar apenas seus próprios dados
+- **Atualização por Admin**: Admins podem atualizar usuários quando:
+  - Estão definindo o `unidadeId` para a mesma unidade do admin (para aprovar novos usuários), OU
+  - O usuário já pertence à mesma unidade do admin
 
 ### Solicitações (`solicitacoes`)
 - **Leitura**: Usuários autenticados podem ler solicitações
@@ -182,6 +185,24 @@ service cloud.firestore {
 2. Verifique se o usuário está autenticado (fez login)
 3. Verifique se a regra permite a operação desejada (read/write)
 
+### Admin não consegue aprovar usuários
+
+**Problema**: Mesmo sendo admin, aparece erro de permissão ao tentar aprovar.
+
+**Solução**: A regra de atualização de usuários precisa verificar tanto o `request.resource.data.unidadeId` (novos dados) quanto o `resource.data.unidadeId` (dados antigos). Certifique-se de que a regra na linha 85-90 está correta:
+
+```javascript
+allow update: if request.auth != null && 
+                (request.auth.uid == userId ||
+                 // Admin pode atualizar se:
+                 // 1. Está definindo unidadeId para a mesma unidade do admin, OU
+                 // 2. O usuário já pertence à mesma unidade do admin
+                 (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
+                  get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin' &&
+                  (request.resource.data.unidadeId == get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId ||
+                   (resource.data.unidadeId != null && resource.data.unidadeId == get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId))));
+```
+
 ### Regras não estão sendo aplicadas
 
 1. Verifique se você está no projeto correto: **sacramental-novo**
@@ -199,4 +220,4 @@ Para produção, configure regras mais restritivas:
 
 ---
 
-**Após configurar as regras, os novos usuários conseguirão ver as unidades existentes!** ✅
+**Após configurar as regras, os novos usuários conseguirão ver as unidades existentes e os admins conseguirão aprovar solicitações!** ✅
