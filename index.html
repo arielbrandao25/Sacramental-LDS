@@ -5272,6 +5272,29 @@ Equipe Sacramental LDS`);
                     setError('');
                     setSuccess('');
                     
+                    // Verificar se o usuário atual é admin
+                    const currentUser = auth.currentUser;
+                    if (!currentUser) {
+                        setError('Você precisa estar logado para aprovar usuários.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    // Buscar dados do usuário atual (admin) para verificar role e unidadeId
+                    const currentUserData = await carregarUsuarioFirestore(currentUser.uid, true);
+                    if (!currentUserData || currentUserData.role !== 'admin') {
+                        setError('Apenas administradores podem aprovar usuários.');
+                        setLoading(false);
+                        return;
+                    }
+                    
+                    console.log('👤 Admin aprovando:', {
+                        adminId: currentUser.uid,
+                        adminEmail: currentUser.email,
+                        adminUnidadeId: currentUserData.unidadeId,
+                        targetUserId: userId
+                    });
+                    
                     // Se requestId não foi fornecido, buscar na lista de solicitações pendentes
                     if (!requestId) {
                         const request = pendingRequests.find(r => r.userId === userId);
@@ -5319,17 +5342,33 @@ Equipe Sacramental LDS`);
                     
                     // Atualizar status do usuário para aprovado no Firestore
                     userData.status = 'approved';
-                    userData.unidadeId = unidadeId;
+                    // Garantir que o unidadeId é o mesmo do admin
+                    userData.unidadeId = currentUserData.unidadeId || unidadeId;
                     userData.atualizadoEm = new Date().toISOString();
+                    
+                    console.log('💾 Salvando usuário no Firestore:', {
+                        userId: userId,
+                        unidadeId: userData.unidadeId,
+                        status: userData.status,
+                        adminUnidadeId: currentUserData.unidadeId
+                    });
                     
                     // Salvar no Firestore (isso sobrescreve qualquer status anterior)
                     try {
                         await salvarUsuarioFirestore(userId, userData);
                         console.log('✅ Usuário aprovado no Firestore:', userId, 'Status:', userData.status);
                     } catch (e) {
+                        console.error('❌ Erro ao salvar no Firestore:', e);
+                        console.error('   - Código do erro:', e.code);
+                        console.error('   - Mensagem:', e.message);
+                        
                         // Se der erro de permissão, mostrar mensagem mais clara
-                        if (e.message && e.message.includes('permissão')) {
-                            setError('Erro ao aprovar usuário: ' + e.message + ' Verifique as regras de segurança do Firestore.');
+                        const isPermissionError = e?.code === 'permission-denied' || 
+                                                 e?.message?.includes('permission') ||
+                                                 e?.message?.includes('Missing or insufficient permissions');
+                        
+                        if (isPermissionError) {
+                            setError('Erro de permissão: Você não tem autorização para aprovar este usuário. Verifique se você é admin e se as regras do Firestore estão configuradas corretamente. Veja CONFIGURAR_REGRAS_FIRESTORE.md');
                             setLoading(false);
                             return;
                         }

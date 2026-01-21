@@ -81,13 +81,16 @@ service cloud.firestore {
                       request.auth.uid == userId;
       
       // Atualização: usuários podem atualizar seus próprios dados
-      // OU admins podem atualizar dados de usuários da mesma unidade
+      // OU admins podem atualizar dados de usuários da mesma unidade do admin
       allow update: if request.auth != null && 
                       (request.auth.uid == userId ||
-                       // Admin pode atualizar se o usuário pertence à mesma unidade do admin
+                       // Admin pode atualizar se:
+                       // 1. Está definindo unidadeId para a mesma unidade do admin, OU
+                       // 2. O usuário já pertence à mesma unidade do admin
                        (exists(/databases/$(database)/documents/usuarios/$(request.auth.uid)) &&
                         get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.role == 'admin' &&
-                        get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId == resource.data.unidadeId));
+                        (request.resource.data.unidadeId == get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId ||
+                         (resource.data.unidadeId != null && resource.data.unidadeId == get(/databases/$(database)/documents/usuarios/$(request.auth.uid)).data.unidadeId))));
       
       // Deleção: apenas usuários podem deletar seus próprios dados
       allow delete: if request.auth != null && 
