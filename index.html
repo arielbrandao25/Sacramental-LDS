@@ -1723,16 +1723,32 @@
                         // (o usuário pode ter sido aprovado recentemente pelo admin)
                         if (userData.unidadeId && userData.status !== 'approved') {
                             console.log('⚠️ Usuário tem unidade mas status não é approved. Verificando novamente no Firestore...');
-                            // Forçar refresh para pegar status atualizado
-                            const refreshedData = await carregarUsuarioFirestore(user.uid, true);
+                            console.log('   - Status atual:', userData.status);
+                            console.log('   - unidadeId:', userData.unidadeId);
+                            
+                            // Forçar refresh múltiplas vezes para garantir que pegamos o status atualizado
+                            let refreshedData = null;
+                            for (let i = 0; i < 3; i++) {
+                                await new Promise(resolve => setTimeout(resolve, 500)); // Aguardar 500ms entre tentativas
+                                refreshedData = await carregarUsuarioFirestore(user.uid, true);
+                                if (refreshedData && refreshedData.status === 'approved') {
+                                    break;
+                                }
+                            }
+                            
                             if (refreshedData) {
-                                console.log('📋 Status atual do Firestore:', refreshedData.status);
+                                console.log('📋 Status após refresh:', refreshedData.status);
+                                console.log('   - unidadeId após refresh:', refreshedData.unidadeId);
                                 if (refreshedData.status === 'approved') {
                                     userData = refreshedData;
                                     console.log('✅ Status atualizado para approved após refresh');
                                     // Atualizar localStorage também
                                     localStorage.setItem(`user_${user.uid}`, JSON.stringify(userData));
+                                } else {
+                                    console.warn('⚠️ Status ainda não é approved:', refreshedData.status);
                                 }
+                            } else {
+                                console.warn('⚠️ Não foi possível buscar dados atualizados do Firestore');
                             }
                         }
                     }
