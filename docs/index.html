@@ -465,35 +465,53 @@
         
         // Carregar usuário do Firestore
         const carregarUsuarioFirestore = async (userId, forceRefresh = false) => {
-            // Se não forçar refresh e estiver offline, usar localStorage
+            // Verificar localStorage primeiro (mais rápido, funciona offline)
+            const userDataStr = localStorage.getItem(`user_${userId}`);
+            
+            // Se não forçar refresh e estiver offline, usar localStorage imediatamente
             if (!forceRefresh && !navigator.onLine) {
-                const userDataStr = localStorage.getItem(`user_${userId}`);
                 if (userDataStr) {
                     console.warn('⚠️ Offline - usando cache do localStorage para usuário:', userId);
                     return JSON.parse(userDataStr);
                 }
+                return null;
             }
             
             try {
-                // Sempre tentar carregar do Firestore primeiro (dados mais atualizados)
-                if (navigator.onLine) {
-                    const userRef = doc(db, 'usuarios', userId);
-                    const userSnap = await getDoc(userRef);
-                    
-                    if (userSnap.exists()) {
-                        const data = { id: userSnap.id, ...userSnap.data() };
-                        // Atualizar cache do localStorage
-                        localStorage.setItem(`user_${userId}`, JSON.stringify(data));
-                        console.log('✅ Usuário carregado do Firestore:', userId, 'Status:', data.status);
-                        return data;
-                    }
+                // Tentar carregar do Firestore (dados mais atualizados)
+                const userRef = doc(db, 'usuarios', userId);
+                const userSnap = await getDoc(userRef);
+                
+                if (userSnap.exists()) {
+                    const data = { id: userSnap.id, ...userSnap.data() };
+                    // Atualizar cache do localStorage
+                    localStorage.setItem(`user_${userId}`, JSON.stringify(data));
+                    console.log('✅ Usuário carregado do Firestore:', userId, 'Status:', data.status);
+                    return data;
                 }
             } catch (e) {
-                console.error('❌ Erro ao carregar usuário do Firestore:', e);
+                // Verificar se é erro de offline do Firestore
+                const isOfflineError = e?.code === 'unavailable' || 
+                                      e?.code === 'failed-precondition' ||
+                                      e?.message?.includes('offline') ||
+                                      e?.message?.includes('client is offline') ||
+                                      e?.message?.includes('Failed to get document because the client is offline');
+                
+                if (isOfflineError) {
+                    // Firestore está offline - usar localStorage silenciosamente
+                    if (userDataStr) {
+                        console.warn('⚠️ Firestore offline - usando cache do localStorage para usuário:', userId);
+                        return JSON.parse(userDataStr);
+                    }
+                    // Não logar como erro se for apenas offline
+                    return null;
+                }
+                
+                // Outros erros - logar como warning (não como erro crítico)
+                console.warn('⚠️ Erro ao carregar usuário do Firestore:', e?.code || e?.message || e);
             }
             
             // Se não encontrou no Firestore ou erro, usar localStorage como fallback
-            const userDataStr = localStorage.getItem(`user_${userId}`);
             if (userDataStr) {
                 console.warn('⚠️ Usando cache do localStorage para usuário:', userId);
                 return JSON.parse(userDataStr);
