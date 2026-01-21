@@ -306,46 +306,79 @@
                     return buscarUnidadesLocalStorage();
                 }
                 
+                console.log('🔍 Buscando todas as unidades do Firestore...');
+                
                 const unidadesRef = collection(db, 'unidades');
-                const q = query(unidadesRef, orderBy('criadoEm', 'desc'));
-                const querySnapshot = await getDocs(q);
                 
-                const unidades = [];
-                querySnapshot.forEach((doc) => {
-                    unidades.push({ id: doc.id, ...doc.data() });
-                });
-                
-                console.log(`✅ ${unidades.length} unidades encontradas no Firestore`);
-                // Atualizar cache do localStorage
-                unidades.forEach(unidade => {
-                    localStorage.setItem(`unidade_${unidade.id}`, JSON.stringify(unidade));
-                });
-                return unidades;
+                // Primeiro, tentar buscar com orderBy (requer índice)
+                try {
+                    const q = query(unidadesRef, orderBy('criadoEm', 'desc'));
+                    const querySnapshot = await getDocs(q);
+                    
+                    const unidades = [];
+                    querySnapshot.forEach((doc) => {
+                        const data = doc.data();
+                        unidades.push({ id: doc.id, ...data });
+                    });
+                    
+                    console.log(`✅ ${unidades.length} unidades encontradas no Firestore (com índice)`);
+                    
+                    // Atualizar cache do localStorage
+                    unidades.forEach(unidade => {
+                        localStorage.setItem(`unidade_${unidade.id}`, JSON.stringify(unidade));
+                    });
+                    return unidades;
+                } catch (indexError) {
+                    // Se der erro de índice, tentar buscar sem orderBy
+                    const isIndexError = indexError?.code === 'failed-precondition' || 
+                                        indexError?.message?.includes('index') || 
+                                        indexError?.message?.includes('requires an index');
+                    
+                    if (isIndexError) {
+                        console.warn('⚠️ Índice não criado. Buscando sem orderBy...');
+                        if (indexError?.message?.includes('https://console.firebase.google.com')) {
+                            const linkMatch = indexError.message.match(/https:\/\/[^\s]+/);
+                            if (linkMatch) {
+                                console.info('📊 Para criar o índice, acesse:', linkMatch[0]);
+                            }
+                        }
+                        
+                        // Buscar sem orderBy
+                        const querySnapshot = await getDocs(unidadesRef);
+                        const unidades = [];
+                        querySnapshot.forEach((doc) => {
+                            const data = doc.data();
+                            unidades.push({ id: doc.id, ...data });
+                        });
+                        
+                        // Ordenar manualmente
+                        unidades.sort((a, b) => {
+                            const dateA = a.criadoEm ? new Date(a.criadoEm).getTime() : 0;
+                            const dateB = b.criadoEm ? new Date(b.criadoEm).getTime() : 0;
+                            return dateB - dateA;
+                        });
+                        
+                        console.log(`✅ ${unidades.length} unidades encontradas no Firestore (sem índice)`);
+                        
+                        // Atualizar cache do localStorage
+                        unidades.forEach(unidade => {
+                            localStorage.setItem(`unidade_${unidade.id}`, JSON.stringify(unidade));
+                        });
+                        return unidades;
+                    }
+                    
+                    throw indexError;
+                }
             } catch (e) {
-                // Verificar se é erro de índice faltante
-                const isIndexError = e?.code === 'failed-precondition' || 
-                                    e?.message?.includes('index') || 
-                                    e?.message?.includes('requires an index');
-                
                 // Verificar se é erro de permissão
                 const isPermissionError = e?.code === 'permission-denied' || 
                                          e?.message?.includes('permission') ||
                                          e?.message?.includes('Missing or insufficient permissions');
                 
-                if (isIndexError) {
-                    console.warn('⚠️ Índice do Firestore não criado ainda. Usando cache do localStorage.');
-                    if (e?.message?.includes('https://console.firebase.google.com')) {
-                        const linkMatch = e.message.match(/https:\/\/[^\s]+/);
-                        if (linkMatch) {
-                            console.info('📊 Para criar o índice, acesse:', linkMatch[0]);
-                        }
-                    }
-                    return buscarUnidadesLocalStorage();
-                }
-                
                 if (isPermissionError) {
                     console.warn('⚠️ Erro de permissão ao buscar unidades. Verifique as regras de segurança do Firestore.');
                     console.warn('💡 Dica: As regras devem permitir leitura para usuários autenticados.');
+                    console.warn('   Regra necessária: allow read: if request.auth != null;');
                     // Tentar usar localStorage mesmo assim
                     return buscarUnidadesLocalStorage();
                 }
@@ -1591,14 +1624,23 @@
             const buscarUnidadesDisponiveis = async () => {
                 try {
                     console.log('🔍 Buscando unidades disponíveis no Firestore...');
+                    console.log('   - Usuário autenticado:', auth.currentUser?.email || 'Não autenticado');
+                    console.log('   - UID:', auth.currentUser?.uid || 'N/A');
+                    
                     const unidades = await buscarTodasUnidadesFirestore();
                     console.log(`✅ ${unidades.length} unidades encontradas`);
                     
                     if (unidades.length === 0) {
                         console.warn('⚠️ Nenhuma unidade encontrada. Verifique:');
                         console.warn('   1. Se o Firestore está configurado corretamente');
-                        console.warn('   2. Se as regras de segurança permitem leitura');
+                        console.warn('   2. Se as regras de segurança permitem leitura para usuários autenticados');
                         console.warn('   3. Se há unidades cadastradas no Firestore');
+                        console.warn('   4. Regra necessária: allow read: if request.auth != null;');
+                    } else {
+                        console.log('📋 Unidades encontradas:');
+                        unidades.forEach((u, idx) => {
+                            console.log(`   ${idx + 1}. ${u.nome} (ID: ${u.id}, Admin: ${u.adminEmail || 'N/A'})`);
+                        });
                     }
                     
                     return unidades.map(u => ({
@@ -1610,7 +1652,9 @@
                     }));
                 } catch (e) {
                     console.error('❌ Erro ao buscar unidades:', e);
-                    console.error('Detalhes:', e?.code, e?.message);
+                    console.error('   - Código:', e?.code);
+                    console.error('   - Mensagem:', e?.message);
+                    console.error('   - Stack:', e?.stack);
                     return [];
                 }
             };
@@ -2019,8 +2063,10 @@
                     };
                     
                     console.log('💾 Salvando unidade no Firestore...');
-                    await salvarUnidadeFirestore(unidadeData);
-                    console.log('✅ Unidade salva no Firestore');
+                    console.log('   - Dados da unidade:', JSON.stringify(unidadeData, null, 2));
+                    const savedUnidadeId = await salvarUnidadeFirestore(unidadeData);
+                    console.log('✅ Unidade salva no Firestore com ID:', savedUnidadeId);
+                    console.log('   - A unidade agora está disponível para outros usuários solicitarem acesso');
                     
                     // Salvar dados do admin no Firestore
                     const adminUserData = {
