@@ -70,43 +70,43 @@
     }
     </script>
 
-    <!-- Babel para JSX - Versão muito antiga (7.15.0) que não tem o bug de esmodules -->
+    <!-- Babel para JSX - Versão MUITO antiga (7.12.0) que definitivamente não tem o bug de esmodules -->
+    <script src="https://unpkg.com/@babel/standalone@7.12.0/babel.min.js"></script>
     <script>
-        // DESABILITAR processamento automático ANTES do Babel carregar
-        // Interceptar qualquer tentativa de processamento automático
-        window.Babel = window.Babel || {};
-        const originalBabel = window.Babel;
-        
-        // Criar um proxy para interceptar quando Babel for definido
-        Object.defineProperty(window, 'Babel', {
-            get: function() {
-                return originalBabel;
-            },
-            set: function(value) {
-                // Quando Babel for carregado, desabilitar transformScriptTags imediatamente
-                if (value && value.transformScriptTags) {
-                    value.transformScriptTags = function() {
-                        // Não fazer nada - desabilitar processamento automático
-                        console.log('⚠️ Processamento automático do Babel desabilitado');
-                    };
+        // Interceptar transformScriptTags IMEDIATAMENTE após Babel carregar
+        (function() {
+            let interceptAttempts = 0;
+            const maxAttempts = 20;
+            
+            function interceptBabel() {
+                interceptAttempts++;
+                if (window.Babel) {
+                    // Desabilitar transformScriptTags
+                    if (window.Babel.transformScriptTags) {
+                        const original = window.Babel.transformScriptTags;
+                        window.Babel.transformScriptTags = function() {
+                            console.log('⚠️ Processamento automático do Babel bloqueado');
+                            // Não fazer nada - retornar vazio
+                            return;
+                        };
+                        console.log('✅ transformScriptTags desabilitado');
+                    }
+                    return true;
                 }
-                Object.defineProperty(window, 'Babel', {
-                    value: value,
-                    writable: true,
-                    configurable: true
-                });
-            },
-            configurable: true
-        });
+                return false;
+            }
+            
+            // Tentar interceptar imediatamente
+            if (!interceptBabel()) {
+                // Se não funcionou, tentar várias vezes
+                const interval = setInterval(() => {
+                    if (interceptBabel() || interceptAttempts >= maxAttempts) {
+                        clearInterval(interval);
+                    }
+                }, 10);
+            }
+        })();
     </script>
-    <script src="https://unpkg.com/@babel/standalone@7.15.0/babel.min.js" onload="
-        // Garantir que transformScriptTags está desabilitado após carregar
-        if (window.Babel && window.Babel.transformScriptTags) {
-            window.Babel.transformScriptTags = function() {
-                console.log('⚠️ Processamento automático do Babel desabilitado');
-            };
-        }
-    "></script>
     <script>
         // Processar script manualmente após Babel carregar
         (function() {
