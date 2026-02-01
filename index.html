@@ -70,54 +70,83 @@
     }
     </script>
 
-    <!-- Babel para JSX - Versão antiga estável -->
-    <script src="https://unpkg.com/@babel/standalone@7.20.0/babel.min.js"></script>
+    <!-- Babel para JSX - Versão muito antiga que não tem o bug -->
+    <script src="https://unpkg.com/@babel/standalone@7.18.0/babel.min.js"></script>
     <script>
         // Processar script manualmente após Babel carregar
         (function() {
             function processMainScript() {
                 const script = document.getElementById('main-app-script');
-                if (!script || !window.Babel) {
+                if (!script) {
+                    setTimeout(processMainScript, 50);
+                    return;
+                }
+                
+                if (!window.Babel || !window.Babel.transform) {
                     setTimeout(processMainScript, 50);
                     return;
                 }
                 
                 try {
                     const code = script.textContent || script.innerHTML;
+                    
+                    // Transformar com configuração explícita que evita o erro
                     const transformed = window.Babel.transform(code, {
                         presets: [
-                            ['env', { targets: { browsers: ['> 1%', 'last 2 versions'] }, modules: false }],
+                            ['env', { 
+                                targets: { 
+                                    browsers: ['> 1%', 'last 2 versions']
+                                },
+                                modules: false
+                            }],
                             'react'
-                        ]
+                        ],
+                        sourceType: 'module'
                     });
                     
                     // Criar novo script com código transformado
                     const newScript = document.createElement('script');
                     newScript.type = 'module';
                     newScript.textContent = transformed.code;
-                    document.body.appendChild(newScript);
                     
-                    // Remover script original
+                    // Adicionar ao body e remover script original
+                    document.body.appendChild(newScript);
                     script.remove();
                     
                     console.log('✅ Script processado manualmente pelo Babel');
                 } catch (e) {
                     console.error('❌ Erro ao processar script:', e);
-                    document.getElementById('error-overlay').style.display = 'block';
-                    document.getElementById('error-overlay').innerHTML = `
-                        <h3>Erro ao processar aplicativo</h3>
-                        <p>${e.message}</p>
-                        <button onclick="window.location.reload()">Recarregar</button>
-                    `;
+                    const errorOverlay = document.getElementById('error-overlay');
+                    if (errorOverlay) {
+                        errorOverlay.style.display = 'block';
+                        errorOverlay.innerHTML = `
+                            <div style="padding: 40px; text-align: center; font-family: sans-serif; max-width: 800px; margin: 50px auto;">
+                                <h2 style="color: #b91c1c; margin-bottom: 20px; font-size: 24px;">Erro ao processar aplicativo</h2>
+                                <p style="color: #7f1d1d; margin-bottom: 15px; font-size: 16px;">${e.message || 'Erro desconhecido'}</p>
+                                <pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; font-size: 12px; color: #991b1b; margin: 20px 0;">${e.stack || ''}</pre>
+                                <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                                    Recarregar Página
+                                </button>
+                            </div>
+                        `;
+                    }
                 }
             }
             
-            // Aguardar Babel carregar
-            if (window.Babel) {
-                processMainScript();
+            // Aguardar Babel carregar completamente
+            function waitForBabel() {
+                if (window.Babel && window.Babel.transform) {
+                    processMainScript();
+                } else {
+                    setTimeout(waitForBabel, 50);
+                }
+            }
+            
+            // Iniciar processamento
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', waitForBabel);
             } else {
-                window.addEventListener('load', processMainScript);
-                setTimeout(processMainScript, 500);
+                waitForBabel();
             }
         })();
     </script>
@@ -135,7 +164,7 @@
 
     <div id="root"></div>
 
-    <script type="text/babel" id="main-app-script">
+    <script type="text/plain" id="main-app-script" data-type="babel">
         console.log('🚀 Script iniciado...');
         
         // Função para mostrar erro na tela
