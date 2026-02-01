@@ -70,29 +70,56 @@
     }
     </script>
 
-    <!-- Babel para JSX - Versão mais antiga que não tem o bug de esmodules -->
-    <script src="https://unpkg.com/@babel/standalone@7.22.0/babel.min.js"></script>
+    <!-- Babel para JSX - Versão antiga estável -->
+    <script src="https://unpkg.com/@babel/standalone@7.20.0/babel.min.js"></script>
     <script>
-        // Corrigir configuração do Babel antes de processar scripts
-        window.addEventListener('DOMContentLoaded', function() {
-            if (window.Babel && window.Babel.availablePresets) {
-                // Registrar preset customizado que não usa esmodules problemático
+        // Processar script manualmente após Babel carregar
+        (function() {
+            function processMainScript() {
+                const script = document.getElementById('main-app-script');
+                if (!script || !window.Babel) {
+                    setTimeout(processMainScript, 50);
+                    return;
+                }
+                
                 try {
-                    window.Babel.registerPreset('env-safe', function(api) {
-                        return {
-                            presets: [[window.Babel.availablePresets.env, {
-                                targets: {
-                                    browsers: ['> 1%', 'last 2 versions']
-                                },
-                                modules: false
-                            }]]
-                        };
+                    const code = script.textContent || script.innerHTML;
+                    const transformed = window.Babel.transform(code, {
+                        presets: [
+                            ['env', { targets: { browsers: ['> 1%', 'last 2 versions'] }, modules: false }],
+                            'react'
+                        ]
                     });
+                    
+                    // Criar novo script com código transformado
+                    const newScript = document.createElement('script');
+                    newScript.type = 'module';
+                    newScript.textContent = transformed.code;
+                    document.body.appendChild(newScript);
+                    
+                    // Remover script original
+                    script.remove();
+                    
+                    console.log('✅ Script processado manualmente pelo Babel');
                 } catch (e) {
-                    console.warn('Não foi possível registrar preset customizado:', e);
+                    console.error('❌ Erro ao processar script:', e);
+                    document.getElementById('error-overlay').style.display = 'block';
+                    document.getElementById('error-overlay').innerHTML = `
+                        <h3>Erro ao processar aplicativo</h3>
+                        <p>${e.message}</p>
+                        <button onclick="window.location.reload()">Recarregar</button>
+                    `;
                 }
             }
-        });
+            
+            // Aguardar Babel carregar
+            if (window.Babel) {
+                processMainScript();
+            } else {
+                window.addEventListener('load', processMainScript);
+                setTimeout(processMainScript, 500);
+            }
+        })();
     </script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 font-sans text-slate-800">
@@ -108,7 +135,7 @@
 
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module" data-presets="env-safe,react">
+    <script type="text/babel" id="main-app-script">
         console.log('🚀 Script iniciado...');
         
         // Função para mostrar erro na tela
