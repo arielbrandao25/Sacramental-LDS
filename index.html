@@ -70,59 +70,11 @@
     }
     </script>
 
-    <!-- Babel para JSX - Carregar de forma assíncrona e interceptar ANTES de processar -->
+    <!-- Babel para JSX - Usar versão antiga que não executa transformScriptTags automaticamente -->
+    <script src="https://unpkg.com/@babel/standalone@7.0.0/babel.min.js"></script>
     <script>
-        // Interceptar Babel ANTES de carregar para desabilitar processamento automático
+        // Aguardar Babel carregar e processar script manualmente
         (function() {
-            // Salvar referência original de transformScriptTags se já existir
-            let originalTransformScriptTags = null;
-            
-            // Interceptar quando window.Babel for definido
-            const originalDefineProperty = Object.defineProperty;
-            Object.defineProperty(window, 'Babel', {
-                get: function() {
-                    return window._babel;
-                },
-                set: function(value) {
-                    window._babel = value;
-                    // Desabilitar transformScriptTags IMEDIATAMENTE
-                    if (value && value.transformScriptTags) {
-                        originalTransformScriptTags = value.transformScriptTags;
-                        value.transformScriptTags = function() {
-                            console.log('⚠️ Processamento automático do Babel bloqueado');
-                            return; // Não fazer nada
-                        };
-                        console.log('✅ Babel interceptado e transformScriptTags desabilitado');
-                    }
-                },
-                configurable: true,
-                enumerable: true
-            });
-            
-            // Criar script element para carregar Babel - versão MUITO antiga (7.5.0) que não tem bug esmodules
-            const babelScript = document.createElement('script');
-            babelScript.src = 'https://unpkg.com/@babel/standalone@7.5.0/babel.min.js';
-            
-            // Interceptar quando Babel for carregado
-            babelScript.onload = function() {
-                // Garantir que transformScriptTags está desabilitado
-                if (window.Babel && window.Babel.transformScriptTags) {
-                    window.Babel.transformScriptTags = function() {
-                        console.log('⚠️ Processamento automático do Babel bloqueado');
-                        return;
-                    };
-                }
-                
-                // Aguardar um pouco para garantir que não há processamento automático
-                setTimeout(() => {
-                    processMainScript();
-                }, 100);
-            };
-            
-            // Adicionar script ao head
-            document.head.appendChild(babelScript);
-            
-            // Função para processar script principal
             function processMainScript() {
                 const script = document.getElementById('main-app-script');
                 if (!script) {
@@ -171,6 +123,15 @@
                         `;
                     }
                 }
+            }
+            
+            // Aguardar Babel carregar
+            if (document.readyState === 'loading') {
+                document.addEventListener('DOMContentLoaded', () => {
+                    setTimeout(processMainScript, 100);
+                });
+            } else {
+                setTimeout(processMainScript, 100);
             }
         })();
     </script>
