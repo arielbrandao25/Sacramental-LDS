@@ -70,40 +70,81 @@
     }
     </script>
 
-    <!-- Babel para JSX - Versão EXTREMAMENTE antiga (7.10.0) que não tem o bug de esmodules -->
-    <script src="https://unpkg.com/@babel/standalone@7.10.0/babel.min.js"></script>
+    <!-- Babel para JSX - Carregar de forma assíncrona para evitar processamento automático -->
     <script>
-        // Interceptar transformScriptTags IMEDIATAMENTE após Babel carregar
+        // Carregar Babel de forma assíncrona e desabilitar processamento automático ANTES de carregar
         (function() {
-            let interceptAttempts = 0;
-            const maxAttempts = 20;
+            // Criar script element para carregar Babel
+            const babelScript = document.createElement('script');
+            babelScript.src = 'https://unpkg.com/@babel/standalone@7.8.0/babel.min.js';
             
-            function interceptBabel() {
-                interceptAttempts++;
-                if (window.Babel) {
-                    // Desabilitar transformScriptTags
-                    if (window.Babel.transformScriptTags) {
-                        const original = window.Babel.transformScriptTags;
-                        window.Babel.transformScriptTags = function() {
-                            console.log('⚠️ Processamento automático do Babel bloqueado');
-                            // Não fazer nada - retornar vazio
-                            return;
-                        };
-                        console.log('✅ transformScriptTags desabilitado');
-                    }
-                    return true;
+            // Interceptar quando Babel for carregado
+            babelScript.onload = function() {
+                // Desabilitar transformScriptTags IMEDIATAMENTE
+                if (window.Babel && window.Babel.transformScriptTags) {
+                    window.Babel.transformScriptTags = function() {
+                        console.log('⚠️ Processamento automático do Babel bloqueado');
+                        return; // Não fazer nada
+                    };
+                    console.log('✅ Babel carregado e transformScriptTags desabilitado');
                 }
-                return false;
-            }
+                
+                // Processar script principal manualmente
+                processMainScript();
+            };
             
-            // Tentar interceptar imediatamente
-            if (!interceptBabel()) {
-                // Se não funcionou, tentar várias vezes
-                const interval = setInterval(() => {
-                    if (interceptBabel() || interceptAttempts >= maxAttempts) {
-                        clearInterval(interval);
+            // Adicionar script ao head
+            document.head.appendChild(babelScript);
+            
+            // Função para processar script principal
+            function processMainScript() {
+                const script = document.getElementById('main-app-script');
+                if (!script) {
+                    setTimeout(processMainScript, 50);
+                    return;
+                }
+                
+                if (!window.Babel || !window.Babel.transform) {
+                    setTimeout(processMainScript, 50);
+                    return;
+                }
+                
+                try {
+                    const code = script.textContent || script.innerHTML;
+                    
+                    // Transformar APENAS JSX com preset react
+                    const transformed = window.Babel.transform(code, {
+                        presets: ['react'],
+                        sourceType: 'module'
+                    });
+                    
+                    // Criar novo script com código transformado
+                    const newScript = document.createElement('script');
+                    newScript.type = 'module';
+                    newScript.textContent = transformed.code;
+                    
+                    // Adicionar ao body e remover script original
+                    document.body.appendChild(newScript);
+                    script.remove();
+                    
+                    console.log('✅ Script processado manualmente pelo Babel');
+                } catch (e) {
+                    console.error('❌ Erro ao processar script:', e);
+                    const errorOverlay = document.getElementById('error-overlay');
+                    if (errorOverlay) {
+                        errorOverlay.style.display = 'block';
+                        errorOverlay.innerHTML = `
+                            <div style="padding: 40px; text-align: center; font-family: sans-serif; max-width: 800px; margin: 50px auto;">
+                                <h2 style="color: #b91c1c; margin-bottom: 20px; font-size: 24px;">Erro ao processar aplicativo</h2>
+                                <p style="color: #7f1d1d; margin-bottom: 15px; font-size: 16px;">${e.message || 'Erro desconhecido'}</p>
+                                <pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; font-size: 12px; color: #991b1b; margin: 20px 0;">${e.stack || ''}</pre>
+                                <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                                    Recarregar Página
+                                </button>
+                            </div>
+                        `;
                     }
-                }, 10);
+                }
             }
         })();
     </script>
