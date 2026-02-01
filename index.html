@@ -70,27 +70,53 @@
     }
     </script>
 
-    <!-- Babel para JSX - Carregar de forma assíncrona para evitar processamento automático -->
+    <!-- Babel para JSX - Carregar de forma assíncrona e interceptar ANTES de processar -->
     <script>
-        // Carregar Babel de forma assíncrona e desabilitar processamento automático ANTES de carregar
+        // Interceptar Babel ANTES de carregar para desabilitar processamento automático
         (function() {
+            // Salvar referência original de transformScriptTags se já existir
+            let originalTransformScriptTags = null;
+            
+            // Interceptar quando window.Babel for definido
+            const originalDefineProperty = Object.defineProperty;
+            Object.defineProperty(window, 'Babel', {
+                get: function() {
+                    return window._babel;
+                },
+                set: function(value) {
+                    window._babel = value;
+                    // Desabilitar transformScriptTags IMEDIATAMENTE
+                    if (value && value.transformScriptTags) {
+                        originalTransformScriptTags = value.transformScriptTags;
+                        value.transformScriptTags = function() {
+                            console.log('⚠️ Processamento automático do Babel bloqueado');
+                            return; // Não fazer nada
+                        };
+                        console.log('✅ Babel interceptado e transformScriptTags desabilitado');
+                    }
+                },
+                configurable: true,
+                enumerable: true
+            });
+            
             // Criar script element para carregar Babel
             const babelScript = document.createElement('script');
             babelScript.src = 'https://unpkg.com/@babel/standalone@7.8.0/babel.min.js';
             
             // Interceptar quando Babel for carregado
             babelScript.onload = function() {
-                // Desabilitar transformScriptTags IMEDIATAMENTE
+                // Garantir que transformScriptTags está desabilitado
                 if (window.Babel && window.Babel.transformScriptTags) {
                     window.Babel.transformScriptTags = function() {
                         console.log('⚠️ Processamento automático do Babel bloqueado');
-                        return; // Não fazer nada
+                        return;
                     };
-                    console.log('✅ Babel carregado e transformScriptTags desabilitado');
                 }
                 
-                // Processar script principal manualmente
-                processMainScript();
+                // Aguardar um pouco para garantir que não há processamento automático
+                setTimeout(() => {
+                    processMainScript();
+                }, 100);
             };
             
             // Adicionar script ao head
