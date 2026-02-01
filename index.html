@@ -189,7 +189,7 @@
             History, Globe, Wifi, ClipboardList, UserCheck, UserMinus, 
             Radio, Briefcase, Pencil, X, Settings, Plus, Music, Mic, 
             FileText, BarChart3, TrendingUp, PieChart, MoreVertical, 
-            Printer, Smile, LogOut, Share2, Download
+            Printer, Smile, LogOut, Share2, Download, CheckCircle
         } from 'lucide-react';
 
         // Verificar se GoogleAuthProvider está disponível
@@ -3041,7 +3041,7 @@
                             {view === 'agenda' && <AgendaView currentDate={currentDate} changeMonth={changeMonth} sundays={currentSundays} assignments={assignments} attendance={attendance} members={members} onSelectDate={(id) => { setSelectedAssignmentId(id); setView('editor'); }} />}
                             {view === 'membros' && <MembersView members={members} user={authData.user} availableCallings={availableCallings} onManageCallings={() => setShowCallingManager(true)} driveFolderId={authData.driveFolderId} unidadeId={authData.unidadeId} />}
                             {view === 'editor' && <EditorView dateStr={selectedAssignmentId} assignments={assignments} attendance={attendance} members={members} user={authData.user} onBack={() => setView('agenda')} driveFolderId={authData.driveFolderId} unidadeId={authData.unidadeId} />}
-                            {view === 'reports' && <ReportsView attendance={attendance} members={members} />}
+                            {view === 'reports' && <ReportsView attendance={attendance} members={members} assignments={assignments} />}
                         </main>
 
                         {/* Nav Bar Modernizada */}
@@ -4054,10 +4054,17 @@
                                             </div>
                                         </div>
                                         <button 
-                                            onClick={() => {
+                                            onClick={async () => {
                                                 if (confirm(`Tem certeza que deseja excluir ${m.name}? Esta ação não pode ser desfeita.`)) {
-                                                    const fileName = m.id.startsWith('member_') ? m.id : `member_${m.id}`;
-                                                    deletarDoDrive(driveFolderId, fileName);
+                                                    try {
+                                                        // Tentar deletar do Firestore primeiro
+                                                        await deletarMembroFirestore(unidadeId, m.id);
+                                                    } catch (e) {
+                                                        console.warn('Erro ao deletar do Firestore, tentando Drive:', e);
+                                                        // Fallback para Drive
+                                                        const fileName = m.id.startsWith('member_') ? m.id : `member_${m.id}`;
+                                                        await deletarDoDrive(driveFolderId, fileName);
+                                                    }
                                                 }
                                             }}
                                             className="text-gray-300 hover:text-red-500 transition-all p-2 rounded-full hover:bg-red-50"
@@ -4106,10 +4113,17 @@
                                             </div>
                                         </div>
                                         <button 
-                                            onClick={() => {
+                                            onClick={async () => {
                                                 if (confirm(`Tem certeza que deseja excluir ${m.name}? Esta ação não pode ser desfeita.`)) {
-                                                    const fileName = m.id.startsWith('member_') ? m.id : `member_${m.id}`;
-                                                    deletarDoDrive(driveFolderId, fileName);
+                                                    try {
+                                                        // Tentar deletar do Firestore primeiro
+                                                        await deletarMembroFirestore(unidadeId, m.id);
+                                                    } catch (e) {
+                                                        console.warn('Erro ao deletar do Firestore, tentando Drive:', e);
+                                                        // Fallback para Drive
+                                                        const fileName = m.id.startsWith('member_') ? m.id : `member_${m.id}`;
+                                                        await deletarDoDrive(driveFolderId, fileName);
+                                                    }
                                                 }
                                             }}
                                             className="text-gray-300 hover:text-red-500 transition-all p-2 rounded-full hover:bg-red-50"
@@ -4145,10 +4159,18 @@
                             determinarClasse={determinarClasse}
                             driveFolderId={driveFolderId}
                             availableCallings={availableCallings}
-                            onDelete={(memberId) => {
+                            unidadeId={unidadeId}
+                            onDelete={async (memberId) => {
                                 if (confirm(`Tem certeza que deseja excluir ${selectedMember.name}? Esta ação não pode ser desfeita.`)) {
-                                    const fileName = memberId.startsWith('member_') ? memberId : `member_${memberId}`;
-                                    deletarDoDrive(driveFolderId, fileName);
+                                    try {
+                                        // Tentar deletar do Firestore primeiro
+                                        await deletarMembroFirestore(unidadeId, memberId);
+                                    } catch (e) {
+                                        console.warn('Erro ao deletar do Firestore, tentando Drive:', e);
+                                        // Fallback para Drive
+                                        const fileName = memberId.startsWith('member_') ? memberId : `member_${memberId}`;
+                                        await deletarDoDrive(driveFolderId, fileName);
+                                    }
                                     setSelectedMember(null);
                                 }
                             }}
@@ -4236,7 +4258,7 @@
             );
         }
         
-        function MemberDetailsModal({ member, onClose, calcularIdade, determinarClasse, driveFolderId, availableCallings, onDelete }) {
+        function MemberDetailsModal({ member, onClose, calcularIdade, determinarClasse, driveFolderId, availableCallings, unidadeId, onDelete }) {
             const [isEditing, setIsEditing] = useState(false);
             const [editForm, setEditForm] = useState({
                 name: member.name || '',
@@ -4278,9 +4300,26 @@
                 }
                 setSaving(true);
                 try {
-                    // Garantir que o nome do arquivo tenha o prefixo member_
-                    const fileName = member.id.startsWith('member_') ? member.id : `member_${member.id}`;
-                    await salvarNoDrive(driveFolderId, fileName, { ...member, ...editForm });
+                    // Preparar dados para salvar
+                    const dataToSave = { 
+                        ...member, 
+                        ...editForm,
+                        // Preservar criadoEm se existir
+                        criadoEm: member.criadoEm || member.createdAt || new Date().toISOString(),
+                        createdAt: member.createdAt || member.criadoEm || new Date().toISOString()
+                    };
+                    
+                    // Salvar no Firestore primeiro (sincronização em tempo real)
+                    try {
+                        await salvarMembroFirestore(unidadeId, member.id, dataToSave);
+                        console.log('✅ Membro atualizado no Firestore');
+                    } catch (e) {
+                        console.warn('Erro ao salvar no Firestore, tentando Drive:', e);
+                        // Fallback para Drive
+                        const fileName = member.id.startsWith('member_') ? member.id : `member_${member.id}`;
+                        await salvarNoDrive(driveFolderId, fileName, dataToSave);
+                    }
+                    
                     setIsEditing(false);
                     alert('Membro atualizado com sucesso!');
                     onClose();
@@ -4549,7 +4588,7 @@
             );
         }
 
-        function ReportsView({ attendance, members }) {
+        function ReportsView({ attendance, members, assignments }) {
             const calcularIdade = (birthDate) => {
                 if (!birthDate) return null;
                 const hoje = new Date();
@@ -4871,6 +4910,123 @@
                     }))
                     .sort((a, b) => b.totalFaltas - a.totalFaltas);
             }, [membersReport]);
+            
+            // Análise de discursantes
+            const analiseDiscursantes = useMemo(() => {
+                if (!assignments || !Array.isArray(assignments) || assignments.length === 0) {
+                    return {
+                        discursantes: [],
+                        naoDiscursaram: [],
+                        totalDiscursos: 0
+                    };
+                }
+                
+                // Obter todos os membros (exceto visitantes)
+                const todosMembros = members.filter(m => m.type !== 'visitor');
+                
+                // Mapa para armazenar informações de discursos por membro
+                const discursosPorMembro = {};
+                
+                // Inicializar todos os membros
+                todosMembros.forEach(member => {
+                    discursosPorMembro[member.id] = {
+                        memberId: member.id,
+                        nome: member.name,
+                        discursos: [],
+                        totalDiscursos: 0
+                    };
+                });
+                
+                // Processar todos os assignments para encontrar discursos
+                assignments.forEach(assignment => {
+                    const dateStr = assignment.date || assignment.id;
+                    if (!dateStr) return;
+                    
+                    // Formatar data para exibição
+                    const dataFormatada = new Date(dateStr + 'T12:00:00').toLocaleDateString('pt-BR', {
+                        day: '2-digit',
+                        month: '2-digit',
+                        year: 'numeric'
+                    });
+                    
+                    // Função auxiliar para encontrar membro por ID (compatível com diferentes formatos)
+                    const encontrarMembroPorId = (speakerId) => {
+                        if (!speakerId) return null;
+                        const speakerIdStr = String(speakerId);
+                        // Tentar encontrar por ID exato
+                        if (discursosPorMembro[speakerIdStr]) {
+                            return speakerIdStr;
+                        }
+                        // Tentar encontrar por comparação flexível
+                        for (const memberId in discursosPorMembro) {
+                            if (String(memberId) === speakerIdStr || memberId == speakerId) {
+                                return memberId;
+                            }
+                        }
+                        return null;
+                    };
+                    
+                    // Verificar speaker1
+                    if (assignment.speaker1) {
+                        const memberId = encontrarMembroPorId(assignment.speaker1);
+                        if (memberId && discursosPorMembro[memberId]) {
+                            discursosPorMembro[memberId].discursos.push({
+                                data: dateStr,
+                                dataFormatada: dataFormatada,
+                                posicao: '1º'
+                            });
+                            discursosPorMembro[memberId].totalDiscursos++;
+                        }
+                    }
+                    
+                    // Verificar speaker2
+                    if (assignment.speaker2) {
+                        const memberId = encontrarMembroPorId(assignment.speaker2);
+                        if (memberId && discursosPorMembro[memberId]) {
+                            discursosPorMembro[memberId].discursos.push({
+                                data: dateStr,
+                                dataFormatada: dataFormatada,
+                                posicao: '2º'
+                            });
+                            discursosPorMembro[memberId].totalDiscursos++;
+                        }
+                    }
+                });
+                
+                // Separar quem já discursou e quem não discursou
+                const discursantes = Object.values(discursosPorMembro)
+                    .filter(m => m.totalDiscursos > 0)
+                    .map(m => ({
+                        ...m,
+                        discursos: m.discursos.sort((a, b) => {
+                            // Ordenar por data (mais recente primeiro)
+                            return new Date(b.data + 'T12:00:00') - new Date(a.data + 'T12:00:00');
+                        })
+                    }))
+                    .sort((a, b) => b.totalDiscursos - a.totalDiscursos); // Ordenar por total de discursos
+                
+                const naoDiscursaram = Object.values(discursosPorMembro)
+                    .filter(m => m.totalDiscursos === 0)
+                    .map(m => ({
+                        nome: m.nome,
+                        memberId: m.memberId
+                    }))
+                    .sort((a, b) => a.nome.localeCompare(b.nome)); // Ordenar alfabeticamente
+                
+                // Calcular total de discursos
+                const totalDiscursos = assignments.reduce((total, assignment) => {
+                    let count = 0;
+                    if (assignment.speaker1) count++;
+                    if (assignment.speaker2) count++;
+                    return total + count;
+                }, 0);
+                
+                return {
+                    discursantes,
+                    naoDiscursaram,
+                    totalDiscursos
+                };
+            }, [assignments, members]);
 
             return (
                 <div className="space-y-4 animate-fade-in">
@@ -5026,6 +5182,99 @@
                                         </div>
                                     );
                                 })}
+                            </div>
+                        )}
+                    </div>
+                    
+                    {/* Análise de Discursantes */}
+                    <div className="bg-white p-5 rounded-2xl border border-gray-200 shadow-md">
+                        <h3 className="font-bold text-base mb-4 text-gray-900 flex items-center gap-2">
+                            <Mic size={18} className="text-purple-600"/> Análise de Discursantes
+                        </h3>
+                        
+                        {analiseDiscursantes.totalDiscursos === 0 ? (
+                            <p className="text-gray-400 text-sm italic">Nenhum discurso registrado ainda</p>
+                        ) : (
+                            <div className="space-y-4">
+                                {/* Resumo */}
+                                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 p-4 rounded-xl border border-purple-200">
+                                    <div className="flex flex-wrap gap-4 text-sm">
+                                        <div>
+                                            <span className="text-gray-600">Total de discursos:</span>
+                                            <span className="font-bold text-purple-900 ml-2">{analiseDiscursantes.totalDiscursos}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-600">Já discursaram:</span>
+                                            <span className="font-bold text-green-700 ml-2">{analiseDiscursantes.discursantes.length}</span>
+                                        </div>
+                                        <div>
+                                            <span className="text-gray-600">Ainda não discursaram:</span>
+                                            <span className="font-bold text-orange-700 ml-2">{analiseDiscursantes.naoDiscursaram.length}</span>
+                                        </div>
+                                    </div>
+                                </div>
+                                
+                                {/* Quem já discursou */}
+                                {analiseDiscursantes.discursantes.length > 0 && (
+                                    <div>
+                                        <h4 className="font-semibold text-sm text-gray-900 mb-3 flex items-center gap-2">
+                                            <CheckCircle size={16} className="text-green-600"/> Quem já discursou ({analiseDiscursantes.discursantes.length})
+                                        </h4>
+                                        <div className="space-y-2 max-h-96 overflow-y-auto">
+                                            {analiseDiscursantes.discursantes.map((discursante, idx) => (
+                                                <div key={discursante.memberId} className="border border-gray-200 rounded-xl p-4 hover:shadow-md transition-all bg-green-50/50">
+                                                    <div className="flex justify-between items-start mb-2">
+                                                        <div className="flex-1">
+                                                            <h5 className="font-bold text-gray-900">{discursante.nome}</h5>
+                                                            <p className="text-xs text-gray-600 mt-1">
+                                                                Total: <strong>{discursante.totalDiscursos}</strong> {discursante.totalDiscursos === 1 ? 'discurso' : 'discursos'}
+                                                            </p>
+                                                        </div>
+                                                        <div className="text-right">
+                                                            <span className="bg-green-100 text-green-800 text-xs font-semibold px-2 py-1 rounded-full">
+                                                                {discursante.totalDiscursos}x
+                                                            </span>
+                                                        </div>
+                                                    </div>
+                                                    <div className="mt-2 pt-2 border-t border-gray-200">
+                                                        <p className="text-xs font-semibold text-gray-700 mb-1">Datas dos discursos:</p>
+                                                        <div className="flex flex-wrap gap-2">
+                                                            {discursante.discursos.map((discurso, dIdx) => (
+                                                                <span 
+                                                                    key={dIdx}
+                                                                    className="bg-white border border-purple-200 text-purple-800 text-xs px-2 py-1 rounded-lg font-medium"
+                                                                >
+                                                                    {discurso.dataFormatada} ({discurso.posicao})
+                                                                </span>
+                                                            ))}
+                                                        </div>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
+                                
+                                {/* Quem ainda não discursou */}
+                                {analiseDiscursantes.naoDiscursaram.length > 0 && (
+                                    <div>
+                                        <h4 className="font-semibold text-sm text-gray-900 mb-3 flex items-center gap-2">
+                                            <AlertCircle size={16} className="text-orange-600"/> Quem ainda não discursou ({analiseDiscursantes.naoDiscursaram.length})
+                                        </h4>
+                                        <div className="space-y-2 max-h-64 overflow-y-auto">
+                                            {analiseDiscursantes.naoDiscursaram.map((membro, idx) => (
+                                                <div key={membro.memberId} className="border border-orange-200 rounded-xl p-3 hover:shadow-md transition-all bg-orange-50/50">
+                                                    <div className="flex items-center justify-between">
+                                                        <span className="font-medium text-gray-900">{membro.nome}</span>
+                                                        <span className="text-xs text-orange-700 bg-orange-100 px-2 py-1 rounded-full font-semibold">
+                                                            Pendente
+                                                        </span>
+                                                    </div>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    </div>
+                                )}
                             </div>
                         )}
                     </div>
