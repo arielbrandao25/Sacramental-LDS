@@ -70,8 +70,8 @@
     }
     </script>
 
-    <!-- Babel para JSX - Versão muito antiga que não tem o bug -->
-    <script src="https://unpkg.com/@babel/standalone@7.18.0/babel.min.js"></script>
+    <!-- Babel para JSX - Versão muito antiga (7.15.0) que não tem o bug de esmodules -->
+    <script src="https://unpkg.com/@babel/standalone@7.15.0/babel.min.js"></script>
     <script>
         // Processar script manualmente após Babel carregar
         (function() {
@@ -90,17 +90,11 @@
                 try {
                     const code = script.textContent || script.innerHTML;
                     
-                    // Transformar com configuração explícita que evita o erro
+                    // Transformar APENAS JSX com preset react
+                    // Não usar preset 'env' que causa erro com esmodules
+                    // O código ES6 moderno (imports, arrow functions, etc.) funciona nativamente com type="module"
                     const transformed = window.Babel.transform(code, {
-                        presets: [
-                            ['env', { 
-                                targets: { 
-                                    browsers: ['> 1%', 'last 2 versions']
-                                },
-                                modules: false
-                            }],
-                            'react'
-                        ],
+                        presets: ['react'],
                         sourceType: 'module'
                     });
                     
