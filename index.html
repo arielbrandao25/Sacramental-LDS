@@ -72,6 +72,28 @@
 
     <!-- Babel para JSX - Versão mais antiga que não tem o bug de esmodules -->
     <script src="https://unpkg.com/@babel/standalone@7.22.0/babel.min.js"></script>
+    <script>
+        // Corrigir configuração do Babel antes de processar scripts
+        window.addEventListener('DOMContentLoaded', function() {
+            if (window.Babel && window.Babel.availablePresets) {
+                // Registrar preset customizado que não usa esmodules problemático
+                try {
+                    window.Babel.registerPreset('env-safe', function(api) {
+                        return {
+                            presets: [[window.Babel.availablePresets.env, {
+                                targets: {
+                                    browsers: ['> 1%', 'last 2 versions']
+                                },
+                                modules: false
+                            }]]
+                        };
+                    });
+                } catch (e) {
+                    console.warn('Não foi possível registrar preset customizado:', e);
+                }
+            }
+        });
+    </script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 font-sans text-slate-800">
     
@@ -86,7 +108,7 @@
 
     <div id="root"></div>
 
-    <script type="text/babel">
+    <script type="text/babel" data-type="module" data-presets="env-safe,react">
         console.log('🚀 Script iniciado...');
         
         // Função para mostrar erro na tela
