@@ -70,8 +70,8 @@
     }
     </script>
 
-    <!-- Babel para JSX -->
-    <script src="https://unpkg.com/@babel/standalone@7.23.0/babel.min.js"></script>
+    <!-- Babel para JSX - Versão mais antiga que não tem o bug de esmodules -->
+    <script src="https://unpkg.com/@babel/standalone@7.22.0/babel.min.js"></script>
 </head>
 <body class="bg-gradient-to-br from-blue-50 via-purple-50 to-pink-50 font-sans text-slate-800">
     
@@ -86,7 +86,7 @@
 
     <div id="root"></div>
 
-    <script type="text/babel" data-type="module">
+    <script type="text/babel">
         console.log('🚀 Script iniciado...');
         
         // Função para mostrar erro na tela
