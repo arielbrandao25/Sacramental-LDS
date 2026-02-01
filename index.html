@@ -99,9 +99,9 @@
                 enumerable: true
             });
             
-            // Criar script element para carregar Babel
+            // Criar script element para carregar Babel - versão MUITO antiga (7.5.0) que não tem bug esmodules
             const babelScript = document.createElement('script');
-            babelScript.src = 'https://unpkg.com/@babel/standalone@7.8.0/babel.min.js';
+            babelScript.src = 'https://unpkg.com/@babel/standalone@7.5.0/babel.min.js';
             
             // Interceptar quando Babel for carregado
             babelScript.onload = function() {
