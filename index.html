@@ -70,11 +70,61 @@
     }
     </script>
 
-    <!-- Babel para JSX - Usar versão antiga que não executa transformScriptTags automaticamente -->
-    <script src="https://unpkg.com/@babel/standalone@7.0.0/babel.min.js"></script>
+    <!-- Babel para JSX - Carregar de forma assíncrona e desabilitar processamento automático -->
     <script>
-        // Aguardar Babel carregar e processar script manualmente
         (function() {
+            // Desabilitar transformScriptTags ANTES de carregar o Babel
+            // Interceptar quando window.Babel for definido
+            let babelLoaded = false;
+            
+            // Criar um proxy para interceptar Babel
+            const babelProxy = new Proxy({}, {
+                set: function(target, prop, value) {
+                    if (prop === 'Babel' && value && value.transformScriptTags) {
+                        // Desabilitar transformScriptTags IMEDIATAMENTE
+                        value.transformScriptTags = function() {
+                            console.log('⚠️ Processamento automático do Babel bloqueado');
+                            return;
+                        };
+                        console.log('✅ Babel interceptado - transformScriptTags desabilitado');
+                    }
+                    target[prop] = value;
+                    return true;
+                },
+                get: function(target, prop) {
+                    return target[prop];
+                }
+            });
+            
+            // Carregar Babel de forma assíncrona
+            const babelScript = document.createElement('script');
+            babelScript.src = 'https://unpkg.com/@babel/standalone@7.23.0/babel.min.js';
+            
+            // Interceptar quando Babel for carregado
+            babelScript.onload = function() {
+                // Garantir que transformScriptTags está desabilitado
+                if (window.Babel) {
+                    if (window.Babel.transformScriptTags) {
+                        window.Babel.transformScriptTags = function() {
+                            console.log('⚠️ Processamento automático do Babel bloqueado');
+                            return;
+                        };
+                    }
+                    babelLoaded = true;
+                    console.log('✅ Babel carregado e processamento automático desabilitado');
+                    processMainScript();
+                }
+            };
+            
+            babelScript.onerror = function() {
+                console.error('❌ Erro ao carregar Babel');
+                mostrarErroBabel();
+            };
+            
+            // Adicionar script ao head
+            document.head.appendChild(babelScript);
+            
+            // Função para processar script principal
             function processMainScript() {
                 const script = document.getElementById('main-app-script');
                 if (!script) {
@@ -82,7 +132,7 @@
                     return;
                 }
                 
-                if (!window.Babel || !window.Babel.transform) {
+                if (!babelLoaded || !window.Babel || !window.Babel.transform) {
                     setTimeout(processMainScript, 50);
                     return;
                 }
@@ -90,7 +140,7 @@
                 try {
                     const code = script.textContent || script.innerHTML;
                     
-                    // Transformar APENAS JSX com preset react
+                    // Transformar APENAS JSX com preset react (sem preset env que causa erro)
                     const transformed = window.Babel.transform(code, {
                         presets: ['react'],
                         sourceType: 'module'
@@ -108,30 +158,25 @@
                     console.log('✅ Script processado manualmente pelo Babel');
                 } catch (e) {
                     console.error('❌ Erro ao processar script:', e);
-                    const errorOverlay = document.getElementById('error-overlay');
-                    if (errorOverlay) {
-                        errorOverlay.style.display = 'block';
-                        errorOverlay.innerHTML = `
-                            <div style="padding: 40px; text-align: center; font-family: sans-serif; max-width: 800px; margin: 50px auto;">
-                                <h2 style="color: #b91c1c; margin-bottom: 20px; font-size: 24px;">Erro ao processar aplicativo</h2>
-                                <p style="color: #7f1d1d; margin-bottom: 15px; font-size: 16px;">${e.message || 'Erro desconhecido'}</p>
-                                <pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; font-size: 12px; color: #991b1b; margin: 20px 0;">${e.stack || ''}</pre>
-                                <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
-                                    Recarregar Página
-                                </button>
-                            </div>
-                        `;
-                    }
+                    mostrarErroBabel(e);
                 }
             }
             
-            // Aguardar Babel carregar
-            if (document.readyState === 'loading') {
-                document.addEventListener('DOMContentLoaded', () => {
-                    setTimeout(processMainScript, 100);
-                });
-            } else {
-                setTimeout(processMainScript, 100);
+            function mostrarErroBabel(e) {
+                const errorOverlay = document.getElementById('error-overlay');
+                if (errorOverlay) {
+                    errorOverlay.style.display = 'block';
+                    errorOverlay.innerHTML = `
+                        <div style="padding: 40px; text-align: center; font-family: sans-serif; max-width: 800px; margin: 50px auto;">
+                            <h2 style="color: #b91c1c; margin-bottom: 20px; font-size: 24px;">Erro ao processar aplicativo</h2>
+                            <p style="color: #7f1d1d; margin-bottom: 15px; font-size: 16px;">${e ? e.message : 'Erro ao carregar Babel'}</p>
+                            ${e ? `<pre style="background: #fef2f2; padding: 15px; border-radius: 8px; overflow: auto; text-align: left; font-size: 12px; color: #991b1b; margin: 20px 0;">${e.stack || ''}</pre>` : ''}
+                            <button onclick="window.location.reload()" style="margin-top: 20px; padding: 12px 24px; background: #3b82f6; color: white; border: none; border-radius: 8px; cursor: pointer; font-size: 16px; font-weight: bold;">
+                                Recarregar Página
+                            </button>
+                        </div>
+                    `;
+                }
             }
         })();
     </script>
